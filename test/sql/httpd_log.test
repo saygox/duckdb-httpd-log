@@ -1,0 +1,23 @@
+# name: test/sql/httpd_log.test
+# description: test httpd_log extension
+# group: [sql]
+
+# Before we load the extension, this will fail
+statement error
+SELECT httpd_log('Sam');
+----
+Catalog Error: Scalar Function with name httpd_log does not exist!
+
+# Require statement will ensure this test is run with this extension loaded
+require httpd_log
+
+# Confirm the extension works
+query I
+SELECT httpd_log('Sam');
+----
+HttpdLog Sam 🐥
+
+query I
+SELECT httpd_log_openssl_version('Michael') ILIKE 'HttpdLog Michael, my linked OpenSSL version is OpenSSL%';
+----
+true
