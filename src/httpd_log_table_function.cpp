@@ -38,6 +38,11 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 		format_type = input.inputs[1].GetValue<string>();
 	}
 
+	// Validate format_type
+	if (format_type != "common" && format_type != "combined") {
+		throw BinderException("Invalid format_type '%s'. Supported formats: 'common', 'combined'", format_type);
+	}
+
 	// Expand glob pattern to get list of files
 	auto &fs = FileSystem::GetFileSystem(context);
 	// Use nullptr for FileOpener - the FileSystem will use defaults
@@ -53,26 +58,52 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 		throw BinderException("No files found matching pattern: %s", path_pattern);
 	}
 
-	// Define output schema (13 columns as per requirements)
-	names = {"client_ip", "ident", "auth_user", "timestamp", "timestamp_raw",
-	         "method", "path", "protocol", "status", "bytes",
-	         "filename", "parse_error", "raw_line"};
+	// Define output schema based on format_type
+	if (format_type == "combined") {
+		// Combined format: 15 columns (adds referer and user_agent)
+		names = {"client_ip", "ident", "auth_user", "timestamp", "timestamp_raw",
+		         "method", "path", "protocol", "status", "bytes",
+		         "referer", "user_agent", "filename", "parse_error", "raw_line"};
 
-	return_types = {
-		LogicalType::VARCHAR,   // client_ip
-		LogicalType::VARCHAR,   // ident
-		LogicalType::VARCHAR,   // auth_user
-		LogicalType::TIMESTAMP, // timestamp
-		LogicalType::VARCHAR,   // timestamp_raw
-		LogicalType::VARCHAR,   // method
-		LogicalType::VARCHAR,   // path
-		LogicalType::VARCHAR,   // protocol
-		LogicalType::INTEGER,   // status
-		LogicalType::BIGINT,    // bytes
-		LogicalType::VARCHAR,   // filename
-		LogicalType::BOOLEAN,   // parse_error
-		LogicalType::VARCHAR    // raw_line
-	};
+		return_types = {
+			LogicalType::VARCHAR,   // client_ip
+			LogicalType::VARCHAR,   // ident
+			LogicalType::VARCHAR,   // auth_user
+			LogicalType::TIMESTAMP, // timestamp
+			LogicalType::VARCHAR,   // timestamp_raw
+			LogicalType::VARCHAR,   // method
+			LogicalType::VARCHAR,   // path
+			LogicalType::VARCHAR,   // protocol
+			LogicalType::INTEGER,   // status
+			LogicalType::BIGINT,    // bytes
+			LogicalType::VARCHAR,   // referer
+			LogicalType::VARCHAR,   // user_agent
+			LogicalType::VARCHAR,   // filename
+			LogicalType::BOOLEAN,   // parse_error
+			LogicalType::VARCHAR    // raw_line
+		};
+	} else {
+		// Common format: 13 columns
+		names = {"client_ip", "ident", "auth_user", "timestamp", "timestamp_raw",
+		         "method", "path", "protocol", "status", "bytes",
+		         "filename", "parse_error", "raw_line"};
+
+		return_types = {
+			LogicalType::VARCHAR,   // client_ip
+			LogicalType::VARCHAR,   // ident
+			LogicalType::VARCHAR,   // auth_user
+			LogicalType::TIMESTAMP, // timestamp
+			LogicalType::VARCHAR,   // timestamp_raw
+			LogicalType::VARCHAR,   // method
+			LogicalType::VARCHAR,   // path
+			LogicalType::VARCHAR,   // protocol
+			LogicalType::INTEGER,   // status
+			LogicalType::BIGINT,    // bytes
+			LogicalType::VARCHAR,   // filename
+			LogicalType::BOOLEAN,   // parse_error
+			LogicalType::VARCHAR    // raw_line
+		};
+	}
 
 	return make_uniq<BindData>(files, format_type);
 }
@@ -159,8 +190,13 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			continue;
 		}
 
-		// Parse the line
-		HttpdLogEntry entry = HttpdLogParser::ParseLine(line);
+		// Parse the line based on format_type
+		HttpdLogEntry entry;
+		if (bind_data.format_type == "combined") {
+			entry = HttpdLogParser::ParseCombinedLine(line);
+		} else {
+			entry = HttpdLogParser::ParseLine(line);
+		}
 
 		// Fill output chunk
 		// Column 0: client_ip
@@ -233,17 +269,43 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			FlatVector::SetNull(output.data[9], output_idx, true);
 		}
 
-		// Column 10: filename
-		FlatVector::GetData<string_t>(output.data[10])[output_idx] = StringVector::AddString(output.data[10], state.current_filename);
+		// Combined format has 2 extra columns (referer, user_agent) before filename
+		idx_t filename_col, parse_error_col, raw_line_col;
+		if (bind_data.format_type == "combined") {
+			// Column 10: referer
+			if (entry.parse_error) {
+				FlatVector::GetData<string_t>(output.data[10])[output_idx] = StringVector::AddString(output.data[10], "");
+			} else {
+				FlatVector::GetData<string_t>(output.data[10])[output_idx] = StringVector::AddString(output.data[10], entry.referer);
+			}
 
-		// Column 11: parse_error
-		FlatVector::GetData<bool>(output.data[11])[output_idx] = entry.parse_error;
+			// Column 11: user_agent
+			if (entry.parse_error) {
+				FlatVector::GetData<string_t>(output.data[11])[output_idx] = StringVector::AddString(output.data[11], "");
+			} else {
+				FlatVector::GetData<string_t>(output.data[11])[output_idx] = StringVector::AddString(output.data[11], entry.user_agent);
+			}
 
-		// Column 12: raw_line (only set if parse_error is true)
-		if (entry.parse_error) {
-			FlatVector::GetData<string_t>(output.data[12])[output_idx] = StringVector::AddString(output.data[12], entry.raw_line);
+			filename_col = 12;
+			parse_error_col = 13;
+			raw_line_col = 14;
 		} else {
-			FlatVector::SetNull(output.data[12], output_idx, true);
+			filename_col = 10;
+			parse_error_col = 11;
+			raw_line_col = 12;
+		}
+
+		// Column: filename
+		FlatVector::GetData<string_t>(output.data[filename_col])[output_idx] = StringVector::AddString(output.data[filename_col], state.current_filename);
+
+		// Column: parse_error
+		FlatVector::GetData<bool>(output.data[parse_error_col])[output_idx] = entry.parse_error;
+
+		// Column: raw_line (only set if parse_error is true)
+		if (entry.parse_error) {
+			FlatVector::GetData<string_t>(output.data[raw_line_col])[output_idx] = StringVector::AddString(output.data[raw_line_col], entry.raw_line);
+		} else {
+			FlatVector::SetNull(output.data[raw_line_col], output_idx, true);
 		}
 
 		output_idx++;

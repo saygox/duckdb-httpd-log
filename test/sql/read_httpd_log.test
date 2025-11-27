@@ -229,4 +229,4 @@ query I
 SELECT COUNT(*)
 FROM read_httpd_log('test_data/*.log');
 ----
-15
+26

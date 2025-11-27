@@ -146,4 +146,93 @@ HttpdLogEntry HttpdLogParser::ParseLine(const std::string &line) {
 	return entry;
 }
 
+std::string HttpdLogParser::ExtractQuotedField(const std::string &line, size_t &pos) {
+	// Skip leading whitespace
+	while (pos < line.length() && (line[pos] == ' ' || line[pos] == '\t')) {
+		pos++;
+	}
+
+	if (pos >= line.length() || line[pos] != '"') {
+		return "";
+	}
+
+	pos++; // Skip opening quote
+	size_t start = pos;
+
+	// Find closing quote
+	while (pos < line.length() && line[pos] != '"') {
+		if (line[pos] == '\\' && pos + 1 < line.length()) {
+			pos += 2; // Skip escaped character
+		} else {
+			pos++;
+		}
+	}
+
+	if (pos >= line.length()) {
+		return ""; // No closing quote found
+	}
+
+	std::string result = line.substr(start, pos - start);
+	pos++; // Skip closing quote
+	return result;
+}
+
+HttpdLogEntry HttpdLogParser::ParseCombinedLine(const std::string &line) {
+	HttpdLogEntry entry;
+	entry.raw_line = line;
+
+	// Use regex to parse Combined Log Format
+	// Format: %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-agent}i"
+	// Example: 192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326 "http://www.example.com/" "Mozilla/5.0"
+
+	std::regex log_regex("^(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+\\[([^\\]]+)\\]\\s+\"([^\"]*)\"\\s+(\\S+)\\s+(\\S+)\\s+\"([^\"]*)\"\\s+\"([^\"]*)\"");
+
+	std::smatch match;
+	if (!std::regex_match(line, match, log_regex)) {
+		entry.parse_error = true;
+		return entry;
+	}
+
+	// Extract common fields
+	entry.client_ip = match[1].str();
+	entry.ident = match[2].str();
+	entry.auth_user = match[3].str();
+	entry.timestamp_raw = match[4].str();
+	std::string request = match[5].str();
+	std::string status_str = match[6].str();
+	std::string bytes_str = match[7].str();
+	entry.referer = match[8].str();
+	entry.user_agent = match[9].str();
+
+	// Parse timestamp
+	entry.has_timestamp = ParseTimestamp(entry.timestamp_raw, entry.timestamp);
+
+	// Parse request line
+	if (!ParseRequest(request, entry.method, entry.path, entry.protocol)) {
+		// Request parsing failed, keep the raw values empty
+	}
+
+	// Parse status code
+	try {
+		if (status_str != "-") {
+			entry.status = std::stoi(status_str);
+			entry.has_status = true;
+		}
+	} catch (...) {
+		// Status parsing failed
+	}
+
+	// Parse bytes
+	try {
+		if (bytes_str != "-") {
+			entry.bytes = std::stoll(bytes_str);
+			entry.has_bytes = true;
+		}
+	} catch (...) {
+		// Bytes parsing failed
+	}
+
+	return entry;
+}
+
 } // namespace duckdb
