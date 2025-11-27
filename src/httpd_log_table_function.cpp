@@ -11,15 +11,32 @@ namespace duckdb {
 unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, TableFunctionBindInput &input,
                                                       vector<LogicalType> &return_types, vector<string> &names) {
 	// Check arguments
-	if (input.inputs.size() != 1) {
-		throw BinderException("read_httpd_log requires exactly one argument: the file path or glob pattern");
+	if (input.inputs.size() < 1 || input.inputs.size() > 2) {
+		throw BinderException("read_httpd_log requires 1 or 2 arguments: file path/glob pattern and optional format_type (default: 'common')");
 	}
 
 	if (input.inputs[0].type().id() != LogicalTypeId::VARCHAR) {
-		throw BinderException("read_httpd_log argument must be a string (file path or glob pattern)");
+		throw BinderException("read_httpd_log first argument must be a string (file path or glob pattern)");
 	}
 
 	string path_pattern = input.inputs[0].GetValue<string>();
+
+	// Get format_type parameter (default to 'common')
+	string format_type = "common";
+	// Check for named parameter first
+	auto format_param = input.named_parameters.find("format_type");
+	if (format_param != input.named_parameters.end()) {
+		if (format_param->second.type().id() != LogicalTypeId::VARCHAR) {
+			throw BinderException("read_httpd_log format_type parameter must be a string");
+		}
+		format_type = format_param->second.GetValue<string>();
+	} else if (input.inputs.size() >= 2) {
+		// Fall back to positional parameter
+		if (input.inputs[1].type().id() != LogicalTypeId::VARCHAR) {
+			throw BinderException("read_httpd_log second argument (format_type) must be a string");
+		}
+		format_type = input.inputs[1].GetValue<string>();
+	}
 
 	// Expand glob pattern to get list of files
 	auto &fs = FileSystem::GetFileSystem(context);
@@ -57,7 +74,7 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 		LogicalType::VARCHAR    // raw_line
 	};
 
-	return make_uniq<BindData>(files);
+	return make_uniq<BindData>(files, format_type);
 }
 
 unique_ptr<GlobalTableFunctionState> HttpdLogTableFunction::Init(ClientContext &context, TableFunctionInitInput &input) {
@@ -236,8 +253,9 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 }
 
 void HttpdLogTableFunction::RegisterFunction(ExtensionLoader &loader) {
-	// Create table function
+	// Create table function with optional format_type parameter (default: 'common')
 	TableFunction read_httpd_log("read_httpd_log", {LogicalType::VARCHAR}, Function, Bind, Init);
+	read_httpd_log.named_parameters["format_type"] = LogicalType::VARCHAR;
 
 	// Register the function
 	loader.RegisterFunction(read_httpd_log);

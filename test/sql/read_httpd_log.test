@@ -1,0 +1,232 @@
+# name: test/sql/read_httpd_log.test
+# description: test read_httpd_log table function with format_type parameter
+# group: [sql]
+
+require httpd_log
+
+# Test 1: Basic usage without format_type parameter (should default to 'common')
+query TTTTIIT
+SELECT
+    client_ip,
+    ident,
+    auth_user,
+    timestamp,
+    status,
+    bytes,
+    parse_error
+FROM read_httpd_log('test_data/sample.log')
+WHERE parse_error = false
+ORDER BY timestamp
+LIMIT 3;
+----
+192.168.1.1	-	frank	2000-10-10 20:55:36	200	2326	0
+192.168.1.2	-	alice	2000-10-10 20:56:45	201	150	0
+192.168.1.3	-	-	2000-10-10 20:57:12	304	0	0
+
+# Test 2: Using named format_type parameter with 'common' (positional not supported for named params)
+query TTTTIIT
+SELECT
+    client_ip,
+    ident,
+    auth_user,
+    timestamp,
+    status,
+    bytes,
+    parse_error
+FROM read_httpd_log('test_data/sample.log', format_type='common')
+WHERE parse_error = false
+ORDER BY timestamp
+LIMIT 3;
+----
+192.168.1.1	-	frank	2000-10-10 20:55:36	200	2326	0
+192.168.1.2	-	alice	2000-10-10 20:56:45	201	150	0
+192.168.1.3	-	-	2000-10-10 20:57:12	304	0	0
+
+# Test 3: Using named format_type parameter with 'common'
+query TTTTIIT
+SELECT
+    client_ip,
+    ident,
+    auth_user,
+    timestamp,
+    status,
+    bytes,
+    parse_error
+FROM read_httpd_log('test_data/sample.log', format_type='common')
+WHERE parse_error = false
+ORDER BY timestamp
+LIMIT 3;
+----
+192.168.1.1	-	frank	2000-10-10 20:55:36	200	2326	0
+192.168.1.2	-	alice	2000-10-10 20:56:45	201	150	0
+192.168.1.3	-	-	2000-10-10 20:57:12	304	0	0
+
+# Test 4: Verify default and explicit 'common' produce identical results
+query I
+SELECT COUNT(*) FROM (
+    SELECT * FROM read_httpd_log('test_data/sample.log')
+    EXCEPT
+    SELECT * FROM read_httpd_log('test_data/sample.log', format_type='common')
+);
+----
+0
+
+# Test 5: Verify named parameter produces identical results
+query I
+SELECT COUNT(*) FROM (
+    SELECT * FROM read_httpd_log('test_data/sample.log')
+    EXCEPT
+    SELECT * FROM read_httpd_log('test_data/sample.log', format_type='common')
+);
+----
+0
+
+# Test 6: Test with error lines - default parameter
+query II
+SELECT
+    parse_error,
+    COUNT(*) as count
+FROM read_httpd_log('test_data/with_errors.log')
+GROUP BY parse_error
+ORDER BY parse_error;
+----
+0	3
+1	2
+
+# Test 7: Test with error lines - explicit format_type
+query II
+SELECT
+    parse_error,
+    COUNT(*) as count
+FROM read_httpd_log('test_data/with_errors.log', format_type='common')
+GROUP BY parse_error
+ORDER BY parse_error;
+----
+0	3
+1	2
+
+# Test 8: Verify raw_line is populated for parse errors
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test_data/with_errors.log')
+WHERE parse_error = true AND raw_line IS NOT NULL AND LENGTH(raw_line) > 0;
+----
+2
+
+# Test 9: Test with glob pattern - default parameter
+query I
+SELECT COUNT(DISTINCT filename)
+FROM read_httpd_log('test_data/server*.log');
+----
+2
+
+# Test 10: Test with glob pattern - explicit format_type
+query I
+SELECT COUNT(DISTINCT filename)
+FROM read_httpd_log('test_data/server*.log', format_type='common');
+----
+2
+
+# Test 11: Verify all 13 columns are returned
+query I
+SELECT COUNT(*) FROM (
+    SELECT
+        client_ip,
+        ident,
+        auth_user,
+        timestamp,
+        timestamp_raw,
+        method,
+        path,
+        protocol,
+        status,
+        bytes,
+        filename,
+        parse_error,
+        raw_line
+    FROM read_httpd_log('test_data/sample.log')
+);
+----
+6
+
+# Test 12: Test HTTP method extraction - default parameter
+query TI
+SELECT method, COUNT(*) as count
+FROM read_httpd_log('test_data/sample.log')
+WHERE parse_error = false
+GROUP BY method
+ORDER BY method;
+----
+GET	5
+POST	1
+
+# Test 13: Test HTTP method extraction - explicit format_type
+query TI
+SELECT method, COUNT(*) as count
+FROM read_httpd_log('test_data/sample.log', format_type='common')
+WHERE parse_error = false
+GROUP BY method
+ORDER BY method;
+----
+GET	5
+POST	1
+
+# Test 14: Test status codes
+query II
+SELECT status, COUNT(*) as count
+FROM read_httpd_log('test_data/sample.log')
+WHERE parse_error = false
+GROUP BY status
+ORDER BY status;
+----
+200	2
+201	1
+304	1
+403	1
+404	1
+
+# Test 15: Test path extraction
+query TI
+SELECT path, COUNT(*) as count
+FROM read_httpd_log('test_data/sample.log')
+WHERE parse_error = false AND path LIKE '/index%'
+GROUP BY path;
+----
+/index.html	1
+
+# Test 16: Error - invalid file path
+statement error
+SELECT * FROM read_httpd_log('nonexistent.log');
+----
+Binder Error: No files found matching pattern: nonexistent.log
+
+# Test 17: Error - too many arguments (named parameters don't support positional)
+statement error
+SELECT * FROM read_httpd_log('test_data/sample.log', 'common', 'extra');
+----
+Binder Error: No function matches the given name and argument types
+
+# Test 18: Verify timestamp parsing works correctly
+query T
+SELECT timestamp_raw
+FROM read_httpd_log('test_data/sample.log')
+WHERE parse_error = false
+ORDER BY timestamp
+LIMIT 1;
+----
+10/Oct/2000:13:55:36 -0700
+
+# Test 19: Test bytes field
+query I
+SELECT SUM(bytes)
+FROM read_httpd_log('test_data/sample.log')
+WHERE parse_error = false;
+----
+9900
+
+# Test 20: Count total records across all test files
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test_data/*.log');
+----
+15

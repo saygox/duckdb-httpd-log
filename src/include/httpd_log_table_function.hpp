@@ -17,7 +17,9 @@ private:
 	// Bind data for the table function
 	struct BindData : public TableFunctionData {
 		vector<string> files;
-		explicit BindData(vector<string> files_p) : files(std::move(files_p)) {}
+		string format_type;
+		explicit BindData(vector<string> files_p, string format_type_p)
+			: files(std::move(files_p)), format_type(std::move(format_type_p)) {}
 	};
 
 	// Global state for reading files
