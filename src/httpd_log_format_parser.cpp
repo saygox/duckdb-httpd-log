@@ -1,4 +1,8 @@
 #include "httpd_log_format_parser.hpp"
+#include "duckdb/common/types/date.hpp"
+#include "duckdb/common/types/time.hpp"
+#include "duckdb/common/types/timestamp.hpp"
+#include "duckdb/common/types/interval.hpp"
 #include <regex>
 #include <sstream>
 
@@ -186,7 +190,7 @@ string HttpdLogFormatParser::GenerateRegexPattern(const ParsedFormat &parsed_for
 			const auto &field = parsed_format.fields[field_idx];
 
 			// Skip the directive in the original format string
-			if (field.directive.find('{') != string::npos) {
+			if (!field.modifier.empty()) {
 				// Skip %{modifier}X pattern
 				size_t close_pos = format_str.find('}', pos);
 				if (close_pos != string::npos) {
@@ -274,6 +278,94 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format,
 
 	names.push_back("raw_line");
 	return_types.push_back(LogicalType::VARCHAR);
+}
+
+bool HttpdLogFormatParser::ParseTimestamp(const string &timestamp_str, timestamp_t &result) {
+	// Apache log timestamp format: "10/Oct/2000:13:55:36 -0700"
+	// Format: DD/MMM/YYYY:HH:MM:SS TZ
+	std::istringstream iss(timestamp_str);
+	int day, year, hour, minute, second;
+	char month_str[4];
+	char sep1, sep2, sep3, sep4, sep5;
+	std::string tz_str;
+
+	// Parse: DD/MMM/YYYY:HH:MM:SS
+	iss >> day >> sep1 >> month_str[0] >> month_str[1] >> month_str[2]
+	    >> sep2 >> year >> sep3 >> hour >> sep4 >> minute >> sep5 >> second >> tz_str;
+
+	if (!iss || sep1 != '/' || sep2 != '/' || sep3 != ':' || sep4 != ':' || sep5 != ':') {
+		return false;
+	}
+
+	month_str[3] = '\0';
+
+	// Convert month string to number
+	static const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+	                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+	int month = 0;
+	for (int i = 0; i < 12; i++) {
+		if (strcmp(month_str, months[i]) == 0) {
+			month = i + 1;
+			break;
+		}
+	}
+
+	if (month == 0) {
+		return false;
+	}
+
+	// Parse timezone offset
+	int tz_sign = (tz_str[0] == '-') ? -1 : 1;
+	int tz_hours = std::stoi(tz_str.substr(1, 2));
+	int tz_minutes = std::stoi(tz_str.substr(3, 2));
+	int64_t tz_offset_seconds = tz_sign * (tz_hours * 3600 + tz_minutes * 60);
+
+	// Create DuckDB date
+	date_t date = Date::FromDate(year, month, day);
+
+	// Create DuckDB time
+	dtime_t time = Time::FromTime(hour, minute, second, 0);
+
+	// Combine into timestamp and adjust for timezone to UTC
+	timestamp_t ts = Timestamp::FromDatetime(date, time);
+
+	// Adjust for timezone (subtract offset to get UTC)
+	int64_t epoch_us = Timestamp::GetEpochMicroSeconds(ts);
+	epoch_us -= tz_offset_seconds * Interval::MICROS_PER_SEC;
+	result = Timestamp::FromEpochMicroSeconds(epoch_us);
+
+	return true;
+}
+
+bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, string &path, string &protocol) {
+	// Request format: "GET /index.html HTTP/1.0"
+	std::istringstream iss(request);
+
+	if (!(iss >> method >> path >> protocol)) {
+		return false;
+	}
+
+	return true;
+}
+
+vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const ParsedFormat &parsed_format) {
+	vector<string> result;
+
+	// Use the generated regex pattern to parse the line
+	std::regex log_regex(parsed_format.regex_pattern);
+	std::smatch match;
+
+	if (!std::regex_match(line, match, log_regex)) {
+		// Parsing failed - return empty vector
+		return result;
+	}
+
+	// Extract matched groups (skip group 0 which is the full match)
+	for (size_t i = 1; i < match.size(); i++) {
+		result.push_back(match[i].str());
+	}
+
+	return result;
 }
 
 } // namespace duckdb

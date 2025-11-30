@@ -192,122 +192,119 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			continue;
 		}
 
-		// Parse the line based on format_type
-		HttpdLogEntry entry;
-		if (bind_data.format_type == "combined") {
-			entry = HttpdLogParser::ParseCombinedLine(line);
-		} else {
-			entry = HttpdLogParser::ParseLine(line);
-		}
+		// Parse the line using dynamic parser
+		vector<string> parsed_values = HttpdLogFormatParser::ParseLogLine(line, bind_data.parsed_format);
+		bool parse_error = parsed_values.empty();
 
-		// Fill output chunk
-		// Column 0: client_ip
-		if (entry.parse_error) {
-			FlatVector::GetData<string_t>(output.data[0])[output_idx] = StringVector::AddString(output.data[0], "");
-		} else {
-			FlatVector::GetData<string_t>(output.data[0])[output_idx] = StringVector::AddString(output.data[0], entry.client_ip);
-		}
+		// Fill output chunk dynamically based on parsed format
+		idx_t col_idx = 0;
+		idx_t value_idx = 0;
 
-		// Column 1: ident
-		if (entry.parse_error) {
-			FlatVector::GetData<string_t>(output.data[1])[output_idx] = StringVector::AddString(output.data[1], "");
-		} else {
-			FlatVector::GetData<string_t>(output.data[1])[output_idx] = StringVector::AddString(output.data[1], entry.ident);
-		}
-
-		// Column 2: auth_user
-		if (entry.parse_error) {
-			FlatVector::GetData<string_t>(output.data[2])[output_idx] = StringVector::AddString(output.data[2], "");
-		} else {
-			FlatVector::GetData<string_t>(output.data[2])[output_idx] = StringVector::AddString(output.data[2], entry.auth_user);
-		}
-
-		// Column 3: timestamp
-		if (entry.has_timestamp) {
-			FlatVector::GetData<timestamp_t>(output.data[3])[output_idx] = entry.timestamp;
-		} else {
-			FlatVector::SetNull(output.data[3], output_idx, true);
-		}
-
-		// Column 4: timestamp_raw
-		if (entry.parse_error) {
-			FlatVector::GetData<string_t>(output.data[4])[output_idx] = StringVector::AddString(output.data[4], "");
-		} else {
-			FlatVector::GetData<string_t>(output.data[4])[output_idx] = StringVector::AddString(output.data[4], entry.timestamp_raw);
-		}
-
-		// Column 5: method
-		if (entry.parse_error) {
-			FlatVector::GetData<string_t>(output.data[5])[output_idx] = StringVector::AddString(output.data[5], "");
-		} else {
-			FlatVector::GetData<string_t>(output.data[5])[output_idx] = StringVector::AddString(output.data[5], entry.method);
-		}
-
-		// Column 6: path
-		if (entry.parse_error) {
-			FlatVector::GetData<string_t>(output.data[6])[output_idx] = StringVector::AddString(output.data[6], "");
-		} else {
-			FlatVector::GetData<string_t>(output.data[6])[output_idx] = StringVector::AddString(output.data[6], entry.path);
-		}
-
-		// Column 7: protocol
-		if (entry.parse_error) {
-			FlatVector::GetData<string_t>(output.data[7])[output_idx] = StringVector::AddString(output.data[7], "");
-		} else {
-			FlatVector::GetData<string_t>(output.data[7])[output_idx] = StringVector::AddString(output.data[7], entry.protocol);
-		}
-
-		// Column 8: status
-		if (entry.has_status) {
-			FlatVector::GetData<int32_t>(output.data[8])[output_idx] = entry.status;
-		} else {
-			FlatVector::SetNull(output.data[8], output_idx, true);
-		}
-
-		// Column 9: bytes
-		if (entry.has_bytes) {
-			FlatVector::GetData<int64_t>(output.data[9])[output_idx] = entry.bytes;
-		} else {
-			FlatVector::SetNull(output.data[9], output_idx, true);
-		}
-
-		// Combined format has 2 extra columns (referer, user_agent) before filename
-		idx_t filename_col, parse_error_col, raw_line_col;
-		if (bind_data.format_type == "combined") {
-			// Column 10: referer
-			if (entry.parse_error) {
-				FlatVector::GetData<string_t>(output.data[10])[output_idx] = StringVector::AddString(output.data[10], "");
+		for (const auto &field : bind_data.parsed_format.fields) {
+			if (parse_error) {
+				// Set all columns to NULL or empty on parse error
+				if (field.directive == "%t") {
+					// timestamp column
+					FlatVector::SetNull(output.data[col_idx], output_idx, true);
+					col_idx++;
+					// timestamp_raw column
+					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+					col_idx++;
+				} else if (field.directive == "%r") {
+					// method, path, protocol columns
+					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+					col_idx++;
+					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+					col_idx++;
+					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+					col_idx++;
+				} else {
+					// Regular field
+					if (field.type.id() == LogicalTypeId::VARCHAR) {
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+					} else {
+						FlatVector::SetNull(output.data[col_idx], output_idx, true);
+					}
+					col_idx++;
+				}
 			} else {
-				FlatVector::GetData<string_t>(output.data[10])[output_idx] = StringVector::AddString(output.data[10], entry.referer);
-			}
+				// Process parsed value based on field type
+				const string &value = parsed_values[value_idx];
+				value_idx++;
 
-			// Column 11: user_agent
-			if (entry.parse_error) {
-				FlatVector::GetData<string_t>(output.data[11])[output_idx] = StringVector::AddString(output.data[11], "");
-			} else {
-				FlatVector::GetData<string_t>(output.data[11])[output_idx] = StringVector::AddString(output.data[11], entry.user_agent);
+				if (field.directive == "%t") {
+					// Parse timestamp
+					timestamp_t ts;
+					if (HttpdLogFormatParser::ParseTimestamp(value, ts)) {
+						FlatVector::GetData<timestamp_t>(output.data[col_idx])[output_idx] = ts;
+					} else {
+						FlatVector::SetNull(output.data[col_idx], output_idx, true);
+					}
+					col_idx++;
+					// timestamp_raw
+					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], value);
+					col_idx++;
+				} else if (field.directive == "%r") {
+					// Parse request line into method, path, protocol
+					string method, path, protocol;
+					if (HttpdLogFormatParser::ParseRequest(value, method, path, protocol)) {
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], method);
+						col_idx++;
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], path);
+						col_idx++;
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], protocol);
+						col_idx++;
+					} else {
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+						col_idx++;
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+						col_idx++;
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+						col_idx++;
+					}
+				} else {
+					// Regular field - convert based on type
+					if (field.type.id() == LogicalTypeId::VARCHAR) {
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], value);
+					} else if (field.type.id() == LogicalTypeId::INTEGER) {
+						try {
+							int32_t int_val = std::stoi(value);
+							FlatVector::GetData<int32_t>(output.data[col_idx])[output_idx] = int_val;
+						} catch (...) {
+							FlatVector::SetNull(output.data[col_idx], output_idx, true);
+						}
+					} else if (field.type.id() == LogicalTypeId::BIGINT) {
+						try {
+							// Handle "-" for %b directive (no bytes)
+							if (value == "-") {
+								FlatVector::SetNull(output.data[col_idx], output_idx, true);
+							} else {
+								int64_t int_val = std::stoll(value);
+								FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = int_val;
+							}
+						} catch (...) {
+							FlatVector::SetNull(output.data[col_idx], output_idx, true);
+						}
+					}
+					col_idx++;
+				}
 			}
-
-			filename_col = 12;
-			parse_error_col = 13;
-			raw_line_col = 14;
-		} else {
-			filename_col = 10;
-			parse_error_col = 11;
-			raw_line_col = 12;
 		}
 
-		// Column: filename
-		FlatVector::GetData<string_t>(output.data[filename_col])[output_idx] = StringVector::AddString(output.data[filename_col], state.current_filename);
+		// Add metadata columns at the end
+		// filename
+		FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], state.current_filename);
+		col_idx++;
 
-		// Column: parse_error
-		FlatVector::GetData<bool>(output.data[parse_error_col])[output_idx] = entry.parse_error;
+		// parse_error
+		FlatVector::GetData<bool>(output.data[col_idx])[output_idx] = parse_error;
+		col_idx++;
 
-		// Column: raw_line (only set if parse_error is true)
-		if (entry.parse_error) {
-			FlatVector::GetData<string_t>(output.data[raw_line_col])[output_idx] = StringVector::AddString(output.data[raw_line_col], entry.raw_line);
+		// raw_line (only set if parse_error is true)
+		if (parse_error) {
+			FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], line);
 		} else {
-			FlatVector::SetNull(output.data[raw_line_col], output_idx, true);
+			FlatVector::SetNull(output.data[col_idx], output_idx, true);
 		}
 
 		output_idx++;

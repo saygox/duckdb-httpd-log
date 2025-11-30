@@ -49,6 +49,17 @@ public:
 	                           vector<string> &names,
 	                           vector<LogicalType> &return_types);
 
+	// Parse a log line using the parsed format
+	// Returns a vector of string values corresponding to the fields in parsed_format
+	// Returns empty vector if parsing fails
+	static vector<string> ParseLogLine(const string &line, const ParsedFormat &parsed_format);
+
+	// Helper to parse timestamp from Apache log format
+	static bool ParseTimestamp(const string &timestamp_str, timestamp_t &result);
+
+	// Helper to parse request line into method, path, protocol
+	static bool ParseRequest(const string &request, string &method, string &path, string &protocol);
+
 private:
 	// Map of standard Apache LogFormat directives to column names
 	static const std::unordered_map<string, string> directive_to_column;
