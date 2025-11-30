@@ -153,15 +153,45 @@ The main binaries that will be built are:
 - `unittest` is the test runner of duckdb. The extension is already linked into the binary.
 - `httpd_log.duckdb_extension` is the loadable binary as it would be distributed.
 
-## Running the extension
-To run the extension code, simply start the shell with `./build/release/duckdb`.
+## Local Development and Testing
 
-Now you can use the `read_httpd_log()` table function:
+### Using the Built Extension
+
+After building, there are two ways to use the extension:
+
+#### Option 1: Use the DuckDB Binary with Extension Built-in
+
+The built `duckdb` binary already has the extension linked in:
+
+```sh
+./build/release/duckdb
+```
+
+Then you can directly use the `read_httpd_log()` function:
 ```sql
 D SELECT client_ip, method, path, status
   FROM read_httpd_log('test_data/sample.log')
   WHERE parse_error = false
   LIMIT 5;
+```
+
+#### Option 2: Load the Extension in Standard DuckDB
+
+If you want to use the extension with a standard DuckDB installation:
+
+```sh
+duckdb -unsigned
+```
+
+Then load the extension file:
+```sql
+D LOAD 'build/release/extension/httpd_log/httpd_log.duckdb_extension';
+D SELECT * FROM read_httpd_log('access.log');
+```
+
+### Example Output
+
+```
 ┌─────────────┬─────────┬─────────────┬────────┐
 │  client_ip  │ method  │    path     │ status │
 │   varchar   │ varchar │   varchar   │ int32  │
