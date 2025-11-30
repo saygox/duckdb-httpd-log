@@ -23,6 +23,7 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 
 	// Get format_type parameter (default to 'common')
 	string format_type = "common";
+	bool format_type_specified = false;
 	// Check for named parameter first
 	auto format_param = input.named_parameters.find("format_type");
 	if (format_param != input.named_parameters.end()) {
@@ -30,17 +31,59 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 			throw BinderException("read_httpd_log format_type parameter must be a string");
 		}
 		format_type = format_param->second.GetValue<string>();
+		format_type_specified = true;
 	} else if (input.inputs.size() >= 2) {
 		// Fall back to positional parameter
 		if (input.inputs[1].type().id() != LogicalTypeId::VARCHAR) {
 			throw BinderException("read_httpd_log second argument (format_type) must be a string");
 		}
 		format_type = input.inputs[1].GetValue<string>();
+		format_type_specified = true;
 	}
 
-	// Validate format_type
-	if (format_type != "common" && format_type != "combined") {
-		throw BinderException("Invalid format_type '%s'. Supported formats: 'common', 'combined'", format_type);
+	// Get format_str parameter (optional, for custom format strings)
+	string format_str = "";
+	bool format_str_specified = false;
+	auto format_str_param = input.named_parameters.find("format_str");
+	if (format_str_param != input.named_parameters.end()) {
+		if (format_str_param->second.type().id() != LogicalTypeId::VARCHAR) {
+			throw BinderException("read_httpd_log format_str parameter must be a string");
+		}
+		format_str = format_str_param->second.GetValue<string>();
+		format_str_specified = true;
+	} else if (input.inputs.size() >= 3) {
+		// Fall back to positional parameter (third argument)
+		if (input.inputs[2].type().id() != LogicalTypeId::VARCHAR) {
+			throw BinderException("read_httpd_log third argument (format_str) must be a string");
+		}
+		format_str = input.inputs[2].GetValue<string>();
+		format_str_specified = true;
+	}
+
+	// Convert format_type to format_str if format_str is not specified
+	// This makes format_str the primary parameter
+	if (!format_str_specified) {
+		// Map format_type to corresponding LogFormat string
+		if (format_type == "common") {
+			format_str = "%h %l %u %t \"%r\" %>s %b";
+		} else if (format_type == "combined") {
+			format_str = "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"";
+		} else {
+			throw BinderException("Invalid format_type '%s'. Supported formats: 'common', 'combined'. Or use format_str for custom formats.", format_type);
+		}
+	}
+	// If both are specified, format_str takes precedence (format_type is ignored)
+
+	// Determine the actual format type from format_str
+	// This allows format_str to be the primary parameter
+	string actual_format_type;
+	if (format_str == "%h %l %u %t \"%r\" %>s %b") {
+		actual_format_type = "common";
+	} else if (format_str == "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"") {
+		actual_format_type = "combined";
+	} else {
+		// Custom format string - will be parsed in future implementation
+		actual_format_type = "custom";
 	}
 
 	// Expand glob pattern to get list of files
@@ -58,8 +101,8 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 		throw BinderException("No files found matching pattern: %s", path_pattern);
 	}
 
-	// Define output schema based on format_type
-	if (format_type == "combined") {
+	// Define output schema based on actual_format_type (derived from format_str)
+	if (actual_format_type == "combined") {
 		// Combined format: 15 columns (adds referer and user_agent)
 		names = {"client_ip", "ident", "auth_user", "timestamp", "timestamp_raw",
 		         "method", "path", "protocol", "status", "bytes",
@@ -105,7 +148,7 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 		};
 	}
 
-	return make_uniq<BindData>(files, format_type);
+	return make_uniq<BindData>(files, actual_format_type, format_str);
 }
 
 unique_ptr<GlobalTableFunctionState> HttpdLogTableFunction::Init(ClientContext &context, TableFunctionInitInput &input) {
@@ -315,9 +358,10 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 }
 
 void HttpdLogTableFunction::RegisterFunction(ExtensionLoader &loader) {
-	// Create table function with optional format_type parameter (default: 'common')
+	// Create table function with optional format_type and format_str parameters
 	TableFunction read_httpd_log("read_httpd_log", {LogicalType::VARCHAR}, Function, Bind, Init);
 	read_httpd_log.named_parameters["format_type"] = LogicalType::VARCHAR;
+	read_httpd_log.named_parameters["format_str"] = LogicalType::VARCHAR;
 
 	// Register the function
 	loader.RegisterFunction(read_httpd_log);
