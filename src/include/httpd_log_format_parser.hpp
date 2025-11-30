@@ -43,6 +43,12 @@ public:
 	// Generate a regex pattern from the format string
 	static string GenerateRegexPattern(const ParsedFormat &parsed_format);
 
+	// Generate DuckDB schema (column names and types) from parsed format
+	// Adds standard columns: filename, parse_error, raw_line
+	static void GenerateSchema(const ParsedFormat &parsed_format,
+	                           vector<string> &names,
+	                           vector<LogicalType> &return_types);
+
 private:
 	// Map of standard Apache LogFormat directives to column names
 	static const std::unordered_map<string, string> directive_to_column;

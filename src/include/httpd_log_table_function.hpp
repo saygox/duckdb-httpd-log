@@ -3,6 +3,7 @@
 #include "duckdb.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/common/file_system.hpp"
+#include "httpd_log_format_parser.hpp"
 #include <memory>
 #include <vector>
 
@@ -19,8 +20,10 @@ private:
 		vector<string> files;
 		string format_type;
 		string format_str;
-		explicit BindData(vector<string> files_p, string format_type_p, string format_str_p)
-			: files(std::move(files_p)), format_type(std::move(format_type_p)), format_str(std::move(format_str_p)) {}
+		ParsedFormat parsed_format;
+		explicit BindData(vector<string> files_p, string format_type_p, string format_str_p, ParsedFormat parsed_format_p)
+			: files(std::move(files_p)), format_type(std::move(format_type_p)),
+			  format_str(std::move(format_str_p)), parsed_format(std::move(parsed_format_p)) {}
 	};
 
 	// Global state for reading files

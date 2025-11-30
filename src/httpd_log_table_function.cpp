@@ -74,6 +74,9 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 	}
 	// If both are specified, format_str takes precedence (format_type is ignored)
 
+	// Parse the format string to extract field definitions
+	ParsedFormat parsed_format = HttpdLogFormatParser::ParseFormatString(format_str);
+
 	// Determine the actual format type from format_str
 	// This allows format_str to be the primary parameter
 	string actual_format_type;
@@ -82,7 +85,7 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 	} else if (format_str == "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"") {
 		actual_format_type = "combined";
 	} else {
-		// Custom format string - will be parsed in future implementation
+		// Custom format string
 		actual_format_type = "custom";
 	}
 
@@ -101,54 +104,10 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 		throw BinderException("No files found matching pattern: %s", path_pattern);
 	}
 
-	// Define output schema based on actual_format_type (derived from format_str)
-	if (actual_format_type == "combined") {
-		// Combined format: 15 columns (adds referer and user_agent)
-		names = {"client_ip", "ident", "auth_user", "timestamp", "timestamp_raw",
-		         "method", "path", "protocol", "status", "bytes",
-		         "referer", "user_agent", "filename", "parse_error", "raw_line"};
+	// Generate schema dynamically from parsed format
+	HttpdLogFormatParser::GenerateSchema(parsed_format, names, return_types);
 
-		return_types = {
-			LogicalType::VARCHAR,   // client_ip
-			LogicalType::VARCHAR,   // ident
-			LogicalType::VARCHAR,   // auth_user
-			LogicalType::TIMESTAMP, // timestamp
-			LogicalType::VARCHAR,   // timestamp_raw
-			LogicalType::VARCHAR,   // method
-			LogicalType::VARCHAR,   // path
-			LogicalType::VARCHAR,   // protocol
-			LogicalType::INTEGER,   // status
-			LogicalType::BIGINT,    // bytes
-			LogicalType::VARCHAR,   // referer
-			LogicalType::VARCHAR,   // user_agent
-			LogicalType::VARCHAR,   // filename
-			LogicalType::BOOLEAN,   // parse_error
-			LogicalType::VARCHAR    // raw_line
-		};
-	} else {
-		// Common format: 13 columns
-		names = {"client_ip", "ident", "auth_user", "timestamp", "timestamp_raw",
-		         "method", "path", "protocol", "status", "bytes",
-		         "filename", "parse_error", "raw_line"};
-
-		return_types = {
-			LogicalType::VARCHAR,   // client_ip
-			LogicalType::VARCHAR,   // ident
-			LogicalType::VARCHAR,   // auth_user
-			LogicalType::TIMESTAMP, // timestamp
-			LogicalType::VARCHAR,   // timestamp_raw
-			LogicalType::VARCHAR,   // method
-			LogicalType::VARCHAR,   // path
-			LogicalType::VARCHAR,   // protocol
-			LogicalType::INTEGER,   // status
-			LogicalType::BIGINT,    // bytes
-			LogicalType::VARCHAR,   // filename
-			LogicalType::BOOLEAN,   // parse_error
-			LogicalType::VARCHAR    // raw_line
-		};
-	}
-
-	return make_uniq<BindData>(files, actual_format_type, format_str);
+	return make_uniq<BindData>(files, actual_format_type, format_str, std::move(parsed_format));
 }
 
 unique_ptr<GlobalTableFunctionState> HttpdLogTableFunction::Init(ClientContext &context, TableFunctionInitInput &input) {

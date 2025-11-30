@@ -234,4 +234,46 @@ string HttpdLogFormatParser::GenerateRegexPattern(const ParsedFormat &parsed_for
 	return pattern.str();
 }
 
+void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format,
+                                          vector<string> &names,
+                                          vector<LogicalType> &return_types) {
+	names.clear();
+	return_types.clear();
+
+	// Add columns from the parsed format
+	for (const auto &field : parsed_format.fields) {
+		// Special handling for %t (timestamp) - add both timestamp and timestamp_raw
+		if (field.directive == "%t") {
+			names.push_back("timestamp");
+			return_types.push_back(LogicalType::TIMESTAMP);
+			names.push_back("timestamp_raw");
+			return_types.push_back(LogicalType::VARCHAR);
+		}
+		// Special handling for %r (request) - decompose into method, path, protocol
+		else if (field.directive == "%r") {
+			names.push_back("method");
+			return_types.push_back(LogicalType::VARCHAR);
+			names.push_back("path");
+			return_types.push_back(LogicalType::VARCHAR);
+			names.push_back("protocol");
+			return_types.push_back(LogicalType::VARCHAR);
+		}
+		// Regular field
+		else {
+			names.push_back(field.column_name);
+			return_types.push_back(field.type);
+		}
+	}
+
+	// Add standard metadata columns
+	names.push_back("filename");
+	return_types.push_back(LogicalType::VARCHAR);
+
+	names.push_back("parse_error");
+	return_types.push_back(LogicalType::BOOLEAN);
+
+	names.push_back("raw_line");
+	return_types.push_back(LogicalType::VARCHAR);
+}
+
 } // namespace duckdb
