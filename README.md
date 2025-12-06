@@ -208,6 +208,51 @@ Different tests can be created for DuckDB extensions. The primary way of testing
 make test
 ```
 
+## Cross-Platform Building
+
+### Building for Multiple Platforms
+
+The extension can be built for different platforms using the `DUCKDB_PLATFORM` environment variable:
+
+```sh
+# Build for Linux (on macOS, produces macOS binary - see note below)
+DUCKDB_PLATFORM=linux_amd64 make
+
+# Build for Windows (on macOS, produces macOS binary - see note below)
+DUCKDB_PLATFORM=windows_amd64 make
+
+# Build for macOS ARM64
+DUCKDB_PLATFORM=osx_arm64 make
+
+# Build for macOS x86_64
+DUCKDB_PLATFORM=osx_amd64 make
+```
+
+**Important Note:** True cross-compilation from macOS to Linux/Windows requires proper toolchains or Docker containers. The `DUCKDB_PLATFORM` variable mainly affects build configuration, but the actual binary format will still be for the host platform when building locally.
+
+### CI/CD Cross-Platform Builds
+
+The recommended way to build binaries for all platforms is using GitHub Actions, which is configured in `.github/workflows/MainDistributionPipeline.yml`. This workflow automatically builds for:
+
+- Linux (x86_64, ARM64)
+- macOS (x86_64, ARM64)
+- Windows (x86_64)
+- WebAssembly (WASM)
+
+To trigger a build for all platforms:
+
+1. Push changes to GitHub
+2. The workflow will automatically build, test, and create platform-specific binaries
+3. Binaries are available in the GitHub Actions artifacts
+
+For local cross-platform development, consider using Docker:
+
+```sh
+# Example: Build for Linux using Docker
+docker run --rm -v $(pwd):/workspace -w /workspace \
+  ubuntu:22.04 bash -c "apt-get update && apt-get install -y build-essential cmake git && make"
+```
+
 ## Installation
 
 ### Installing the deployed binaries
