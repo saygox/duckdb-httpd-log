@@ -7,12 +7,12 @@ require httpd_log
 
 # Basic smoke test - confirm the read_httpd_log table function works
 query I
-SELECT COUNT(*) FROM read_httpd_log('test_data/sample.log');
+SELECT COUNT(*) FROM read_httpd_log('test/data/sample.log');
 ----
 6
 
 # Verify extension is loaded and table function is available
 query I
-SELECT COUNT(*) FROM read_httpd_log('test_data/sample.log') WHERE parse_error = 0;
+SELECT COUNT(*) FROM read_httpd_log('test/data/sample.log') WHERE parse_error = 0;
 ----
 6

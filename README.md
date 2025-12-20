@@ -170,7 +170,7 @@ The built `duckdb` binary already has the extension linked in:
 Then you can directly use the `read_httpd_log()` function:
 ```sql
 D SELECT client_ip, method, path, status
-  FROM read_httpd_log('test_data/sample.log')
+  FROM read_httpd_log('test/data/sample.log')
   WHERE parse_error = false
   LIMIT 5;
 ```
