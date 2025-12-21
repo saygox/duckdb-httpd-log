@@ -253,11 +253,58 @@ docker run --rm -v $(pwd):/workspace -w /workspace \
   ubuntu:22.04 bash -c "apt-get update && apt-get install -y build-essential cmake git && make"
 ```
 
+## Releasing
+
+### Creating a Release
+
+To create a new release of the extension:
+
+1. **Tag the release** with semantic versioning:
+   ```bash
+   git tag -a v1.0.0 -m "Release version 1.0.0"
+   git push origin v1.0.0
+   ```
+
+2. **GitHub Actions automatically**:
+   - Builds binaries for all platforms (Linux, macOS, Windows, WebAssembly)
+   - Runs all tests
+   - Creates a GitHub Release
+   - Uploads all binaries to the release
+
+3. **Check the release**:
+   - Visit `https://github.com/<your-username>/httpd_log/releases`
+   - Download binaries for your platform
+
+### Versioning Guidelines
+
+Follow [Semantic Versioning](https://semver.org/):
+- `v1.0.0` - Major release (breaking changes)
+- `v1.1.0` - Minor release (new features, backward compatible)
+- `v1.0.1` - Patch release (bug fixes)
+
 ## Installation
 
-### Installing the deployed binaries
-To install your extension binaries from S3, you will need to do two things. Firstly, DuckDB should be launched with the
-`allow_unsigned_extensions` option set to true. How to set this will depend on the client you're using. Some examples:
+### Installing from GitHub Releases (Recommended)
+
+Download the pre-built binary for your platform from the [Releases page](https://github.com/<your-username>/httpd_log/releases):
+
+```sql
+-- Linux x86_64
+INSTALL 'https://github.com/<your-username>/httpd_log/releases/download/v1.0.0/httpd_log-v1.4.2-extension-linux_amd64.duckdb_extension';
+LOAD httpd_log;
+
+-- macOS ARM64 (M1/M2/M3)
+INSTALL 'https://github.com/<your-username>/httpd_log/releases/download/v1.0.0/httpd_log-v1.4.2-extension-osx_arm64.duckdb_extension';
+LOAD httpd_log;
+
+-- Windows x86_64
+INSTALL 'https://github.com/<your-username>/httpd_log/releases/download/v1.0.0/httpd_log-v1.4.2-extension-windows_amd64.duckdb_extension';
+LOAD httpd_log;
+```
+
+**Note:** Replace `<your-username>` with your GitHub username and `v1.0.0` with the desired version.
+
+You will need to launch DuckDB with the `allow_unsigned_extensions` option:
 
 CLI:
 ```shell
@@ -274,8 +321,9 @@ NodeJS:
 db = new duckdb.Database(':memory:', {"allow_unsigned_extensions": "true"});
 ```
 
-Secondly, you will need to set the repository endpoint in DuckDB to the HTTP url of your bucket + version of the extension
-you want to install. To do this run the following SQL query in DuckDB:
+### Installing the deployed binaries from S3 (For Official DuckDB Extension Repository)
+
+To install your extension binaries from S3, you will need to set the repository endpoint in DuckDB to the HTTP url of your bucket + version of the extension you want to install. To do this run the following SQL query in DuckDB:
 ```sql
 SET custom_extension_repository='bucket.s3.eu-west-1.amazonaws.com/<your_extension_name>/latest';
 ```
