@@ -2,22 +2,17 @@
 # description: test httpd_log extension
 # group: [sql]
 
-# Before we load the extension, this will fail
-statement error
-SELECT httpd_log('Sam');
-----
-Catalog Error: Scalar Function with name httpd_log does not exist!
-
 # Require statement will ensure this test is run with this extension loaded
 require httpd_log
 
-# Confirm the extension works
+# Basic smoke test - confirm the read_httpd_log table function works
 query I
-SELECT httpd_log('Sam');
+SELECT COUNT(*) FROM read_httpd_log('test/data/sample.log');
 ----
-HttpdLog Sam 🐥
+6
 
+# Verify extension is loaded and table function is available
 query I
-SELECT httpd_log_openssl_version('Michael') ILIKE 'HttpdLog Michael, my linked OpenSSL version is OpenSSL%';
+SELECT COUNT(*) FROM read_httpd_log('test/data/sample.log') WHERE parse_error = 0;
 ----
-true
+6
