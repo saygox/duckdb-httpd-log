@@ -8,25 +8,28 @@ namespace duckdb {
 
 // Represents a single field in the log format
 struct FormatField {
-	string directive;      // The format directive (e.g., "%h", "%t", "%{Referer}i")
-	string column_name;    // The corresponding column name (e.g., "client_ip", "timestamp")
-	LogicalType type;      // The data type for this field
-	bool is_quoted;        // Whether this field appears in quotes in the log format
-	string modifier;       // Optional modifier (e.g., "Referer" in "%{Referer}i")
+	string directive;   // The format directive (e.g., "%h", "%t", "%{Referer}i")
+	string column_name; // The corresponding column name (e.g., "client_ip", "timestamp")
+	LogicalType type;   // The data type for this field
+	bool is_quoted;     // Whether this field appears in quotes in the log format
+	string modifier;    // Optional modifier (e.g., "Referer" in "%{Referer}i")
 
-	FormatField(string directive_p, string column_name_p, LogicalType type_p, bool is_quoted_p = false, string modifier_p = "")
-	    : directive(std::move(directive_p)), column_name(std::move(column_name_p)),
-	      type(std::move(type_p)), is_quoted(is_quoted_p), modifier(std::move(modifier_p)) {}
+	FormatField(string directive_p, string column_name_p, LogicalType type_p, bool is_quoted_p = false,
+	            string modifier_p = "")
+	    : directive(std::move(directive_p)), column_name(std::move(column_name_p)), type(std::move(type_p)),
+	      is_quoted(is_quoted_p), modifier(std::move(modifier_p)) {
+	}
 };
 
 // Parsed format string information
 struct ParsedFormat {
-	vector<FormatField> fields;           // List of fields in the format
-	string original_format_str;           // Original format string
-	string regex_pattern;                 // Generated regex pattern for parsing
+	vector<FormatField> fields; // List of fields in the format
+	string original_format_str; // Original format string
+	string regex_pattern;       // Generated regex pattern for parsing
 
 	ParsedFormat() = default;
-	explicit ParsedFormat(string format_str) : original_format_str(std::move(format_str)) {}
+	explicit ParsedFormat(string format_str) : original_format_str(std::move(format_str)) {
+	}
 };
 
 class HttpdLogFormatParser {
@@ -45,8 +48,7 @@ public:
 
 	// Generate DuckDB schema (column names and types) from parsed format
 	// Adds standard columns: filename, parse_error, raw_line
-	static void GenerateSchema(const ParsedFormat &parsed_format,
-	                           vector<string> &names,
+	static void GenerateSchema(const ParsedFormat &parsed_format, vector<string> &names,
 	                           vector<LogicalType> &return_types);
 
 	// Parse a log line using the parsed format

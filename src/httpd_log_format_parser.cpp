@@ -10,46 +10,34 @@ namespace duckdb {
 
 // Apache LogFormat directives to column name mapping
 const std::unordered_map<string, string> HttpdLogFormatParser::directive_to_column = {
-    {"%h", "client_ip"},        // Remote hostname (IP address)
-    {"%l", "ident"},            // Remote logname (from identd)
-    {"%u", "auth_user"},        // Remote user (from auth)
-    {"%t", "timestamp"},        // Time the request was received
-    {"%r", "request"},          // First line of request (method path protocol)
-    {"%>s", "status"},          // Status code
-    {"%s", "status"},           // Status code (alternative)
-    {"%b", "bytes"},            // Size of response in bytes (excluding headers)
-    {"%B", "bytes"},            // Size of response in bytes (alternative)
-    {"%m", "method"},           // Request method
-    {"%U", "path"},             // URL path requested
-    {"%H", "protocol"},         // Request protocol
-    {"%v", "server_name"},      // Canonical server name
-    {"%V", "server_name"},      // Server name (alternative)
-    {"%p", "server_port"},      // Port the request was served on
-    {"%P", "process_id"},       // Process ID of child that serviced request
-    {"%D", "time_us"},          // Time taken to serve request in microseconds
-    {"%T", "time_sec"},         // Time taken to serve request in seconds
+    {"%h", "client_ip"},   // Remote hostname (IP address)
+    {"%l", "ident"},       // Remote logname (from identd)
+    {"%u", "auth_user"},   // Remote user (from auth)
+    {"%t", "timestamp"},   // Time the request was received
+    {"%r", "request"},     // First line of request (method path protocol)
+    {"%>s", "status"},     // Status code
+    {"%s", "status"},      // Status code (alternative)
+    {"%b", "bytes"},       // Size of response in bytes (excluding headers)
+    {"%B", "bytes"},       // Size of response in bytes (alternative)
+    {"%m", "method"},      // Request method
+    {"%U", "path"},        // URL path requested
+    {"%H", "protocol"},    // Request protocol
+    {"%v", "server_name"}, // Canonical server name
+    {"%V", "server_name"}, // Server name (alternative)
+    {"%p", "server_port"}, // Port the request was served on
+    {"%P", "process_id"},  // Process ID of child that serviced request
+    {"%D", "time_us"},     // Time taken to serve request in microseconds
+    {"%T", "time_sec"},    // Time taken to serve request in seconds
 };
 
 // Directive to data type mapping
 const std::unordered_map<string, LogicalTypeId> HttpdLogFormatParser::directive_to_type = {
-    {"%h", LogicalTypeId::VARCHAR},
-    {"%l", LogicalTypeId::VARCHAR},
-    {"%u", LogicalTypeId::VARCHAR},
-    {"%t", LogicalTypeId::TIMESTAMP},
-    {"%r", LogicalTypeId::VARCHAR},
-    {"%>s", LogicalTypeId::INTEGER},
-    {"%s", LogicalTypeId::INTEGER},
-    {"%b", LogicalTypeId::BIGINT},
-    {"%B", LogicalTypeId::BIGINT},
-    {"%m", LogicalTypeId::VARCHAR},
-    {"%U", LogicalTypeId::VARCHAR},
-    {"%H", LogicalTypeId::VARCHAR},
-    {"%v", LogicalTypeId::VARCHAR},
-    {"%V", LogicalTypeId::VARCHAR},
-    {"%p", LogicalTypeId::INTEGER},
-    {"%P", LogicalTypeId::INTEGER},
-    {"%D", LogicalTypeId::BIGINT},
-    {"%T", LogicalTypeId::BIGINT},
+    {"%h", LogicalTypeId::VARCHAR},   {"%l", LogicalTypeId::VARCHAR}, {"%u", LogicalTypeId::VARCHAR},
+    {"%t", LogicalTypeId::TIMESTAMP}, {"%r", LogicalTypeId::VARCHAR}, {"%>s", LogicalTypeId::INTEGER},
+    {"%s", LogicalTypeId::INTEGER},   {"%b", LogicalTypeId::BIGINT},  {"%B", LogicalTypeId::BIGINT},
+    {"%m", LogicalTypeId::VARCHAR},   {"%U", LogicalTypeId::VARCHAR}, {"%H", LogicalTypeId::VARCHAR},
+    {"%v", LogicalTypeId::VARCHAR},   {"%V", LogicalTypeId::VARCHAR}, {"%p", LogicalTypeId::INTEGER},
+    {"%P", LogicalTypeId::INTEGER},   {"%D", LogicalTypeId::BIGINT},  {"%T", LogicalTypeId::BIGINT},
 };
 
 string HttpdLogFormatParser::GetColumnName(const string &directive, const string &modifier) {
@@ -202,11 +190,11 @@ string HttpdLogFormatParser::GenerateRegexPattern(const ParsedFormat &parsed_for
 
 			// Add regex pattern based on field type
 			if (field.is_quoted) {
-				pattern << "([^\"]*)";  // Match anything except quotes
+				pattern << "([^\"]*)"; // Match anything except quotes
 			} else if (field.directive == "%t") {
-				pattern << "\\[([^\\]]+)\\]";  // Timestamp in brackets
+				pattern << "\\[([^\\]]+)\\]"; // Timestamp in brackets
 			} else {
-				pattern << "(\\S+)";  // Match non-whitespace
+				pattern << "(\\S+)"; // Match non-whitespace
 			}
 
 			field_idx++;
@@ -226,8 +214,8 @@ string HttpdLogFormatParser::GenerateRegexPattern(const ParsedFormat &parsed_for
 			pos++;
 		} else {
 			// Literal character
-			if (c == '.' || c == '*' || c == '+' || c == '?' || c == '^' || c == '$' ||
-			    c == '(' || c == ')' || c == '{' || c == '}' || c == '|' || c == '\\') {
+			if (c == '.' || c == '*' || c == '+' || c == '?' || c == '^' || c == '$' || c == '(' || c == ')' ||
+			    c == '{' || c == '}' || c == '|' || c == '\\') {
 				pattern << '\\';
 			}
 			pattern << c;
@@ -238,8 +226,7 @@ string HttpdLogFormatParser::GenerateRegexPattern(const ParsedFormat &parsed_for
 	return pattern.str();
 }
 
-void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format,
-                                          vector<string> &names,
+void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vector<string> &names,
                                           vector<LogicalType> &return_types) {
 	names.clear();
 	return_types.clear();
@@ -290,8 +277,8 @@ bool HttpdLogFormatParser::ParseTimestamp(const string &timestamp_str, timestamp
 	std::string tz_str;
 
 	// Parse: DD/MMM/YYYY:HH:MM:SS
-	iss >> day >> sep1 >> month_str[0] >> month_str[1] >> month_str[2]
-	    >> sep2 >> year >> sep3 >> hour >> sep4 >> minute >> sep5 >> second >> tz_str;
+	iss >> day >> sep1 >> month_str[0] >> month_str[1] >> month_str[2] >> sep2 >> year >> sep3 >> hour >> sep4 >>
+	    minute >> sep5 >> second >> tz_str;
 
 	if (!iss || sep1 != '/' || sep2 != '/' || sep3 != ':' || sep4 != ':' || sep5 != ':') {
 		return false;
@@ -300,8 +287,7 @@ bool HttpdLogFormatParser::ParseTimestamp(const string &timestamp_str, timestamp
 	month_str[3] = '\0';
 
 	// Convert month string to number
-	static const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-	                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+	static const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 	int month = 0;
 	for (int i = 0; i < 12; i++) {
 		if (strcmp(month_str, months[i]) == 0) {

@@ -9,10 +9,11 @@
 namespace duckdb {
 
 unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, TableFunctionBindInput &input,
-                                                      vector<LogicalType> &return_types, vector<string> &names) {
+                                                     vector<LogicalType> &return_types, vector<string> &names) {
 	// Check arguments
 	if (input.inputs.size() < 1 || input.inputs.size() > 2) {
-		throw BinderException("read_httpd_log requires 1 or 2 arguments: file path/glob pattern and optional format_type (default: 'common')");
+		throw BinderException("read_httpd_log requires 1 or 2 arguments: file path/glob pattern and optional "
+		                      "format_type (default: 'common')");
 	}
 
 	if (input.inputs[0].type().id() != LogicalTypeId::VARCHAR) {
@@ -69,7 +70,9 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 		} else if (format_type == "combined") {
 			format_str = "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"";
 		} else {
-			throw BinderException("Invalid format_type '%s'. Supported formats: 'common', 'combined'. Or use format_str for custom formats.", format_type);
+			throw BinderException("Invalid format_type '%s'. Supported formats: 'common', 'combined'. Or use "
+			                      "format_str for custom formats.",
+			                      format_type);
 		}
 	}
 	// If both are specified, format_str takes precedence (format_type is ignored)
@@ -110,7 +113,8 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 	return make_uniq<BindData>(files, actual_format_type, format_str, std::move(parsed_format));
 }
 
-unique_ptr<GlobalTableFunctionState> HttpdLogTableFunction::Init(ClientContext &context, TableFunctionInitInput &input) {
+unique_ptr<GlobalTableFunctionState> HttpdLogTableFunction::Init(ClientContext &context,
+                                                                 TableFunctionInitInput &input) {
 	auto &bind_data = input.bind_data->Cast<BindData>();
 	auto state = make_uniq<GlobalState>();
 
@@ -208,20 +212,25 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 					FlatVector::SetNull(output.data[col_idx], output_idx, true);
 					col_idx++;
 					// timestamp_raw column
-					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+					    StringVector::AddString(output.data[col_idx], "");
 					col_idx++;
 				} else if (field.directive == "%r") {
 					// method, path, protocol columns
-					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+					    StringVector::AddString(output.data[col_idx], "");
 					col_idx++;
-					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+					    StringVector::AddString(output.data[col_idx], "");
 					col_idx++;
-					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+					    StringVector::AddString(output.data[col_idx], "");
 					col_idx++;
 				} else {
 					// Regular field
 					if (field.type.id() == LogicalTypeId::VARCHAR) {
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], "");
 					} else {
 						FlatVector::SetNull(output.data[col_idx], output_idx, true);
 					}
@@ -242,30 +251,38 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 					}
 					col_idx++;
 					// timestamp_raw
-					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], value);
+					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+					    StringVector::AddString(output.data[col_idx], value);
 					col_idx++;
 				} else if (field.directive == "%r") {
 					// Parse request line into method, path, protocol
 					string method, path, protocol;
 					if (HttpdLogFormatParser::ParseRequest(value, method, path, protocol)) {
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], method);
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], method);
 						col_idx++;
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], path);
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], path);
 						col_idx++;
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], protocol);
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], protocol);
 						col_idx++;
 					} else {
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], "");
 						col_idx++;
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], "");
 						col_idx++;
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], "");
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], "");
 						col_idx++;
 					}
 				} else {
 					// Regular field - convert based on type
 					if (field.type.id() == LogicalTypeId::VARCHAR) {
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], value);
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], value);
 					} else if (field.type.id() == LogicalTypeId::INTEGER) {
 						try {
 							int32_t int_val = std::stoi(value);
@@ -293,7 +310,8 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 
 		// Add metadata columns at the end
 		// filename
-		FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], state.current_filename);
+		FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+		    StringVector::AddString(output.data[col_idx], state.current_filename);
 		col_idx++;
 
 		// parse_error
@@ -302,7 +320,8 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 
 		// raw_line (only set if parse_error is true)
 		if (parse_error) {
-			FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] = StringVector::AddString(output.data[col_idx], line);
+			FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+			    StringVector::AddString(output.data[col_idx], line);
 		} else {
 			FlatVector::SetNull(output.data[col_idx], output_idx, true);
 		}

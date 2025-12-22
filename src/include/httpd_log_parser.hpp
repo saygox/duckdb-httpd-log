@@ -20,12 +20,13 @@ struct HttpdLogEntry {
 	bool has_status;
 	int64_t bytes;
 	bool has_bytes;
-	std::string referer;      // Combined format only
-	std::string user_agent;   // Combined format only
+	std::string referer;    // Combined format only
+	std::string user_agent; // Combined format only
 	bool parse_error;
 	std::string raw_line;
 
-	HttpdLogEntry() : has_timestamp(false), has_status(false), has_bytes(false), parse_error(false) {}
+	HttpdLogEntry() : has_timestamp(false), has_status(false), has_bytes(false), parse_error(false) {
+	}
 };
 
 class HttpdLogParser {
@@ -37,7 +38,8 @@ public:
 
 	// Parse a single line in Apache Combined Log Format
 	// Format: %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-agent}i"
-	// Example: 192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326 "http://www.example.com/" "Mozilla/5.0"
+	// Example: 192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326
+	// "http://www.example.com/" "Mozilla/5.0"
 	static HttpdLogEntry ParseCombinedLine(const std::string &line);
 
 private:

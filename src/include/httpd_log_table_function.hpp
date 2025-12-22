@@ -21,9 +21,11 @@ private:
 		string format_type;
 		string format_str;
 		ParsedFormat parsed_format;
-		explicit BindData(vector<string> files_p, string format_type_p, string format_str_p, ParsedFormat parsed_format_p)
-			: files(std::move(files_p)), format_type(std::move(format_type_p)),
-			  format_str(std::move(format_str_p)), parsed_format(std::move(parsed_format_p)) {}
+		explicit BindData(vector<string> files_p, string format_type_p, string format_str_p,
+		                  ParsedFormat parsed_format_p)
+		    : files(std::move(files_p)), format_type(std::move(format_type_p)), format_str(std::move(format_str_p)),
+		      parsed_format(std::move(parsed_format_p)) {
+		}
 	};
 
 	// Global state for reading files
@@ -33,7 +35,8 @@ private:
 		string current_filename;
 		bool finished;
 
-		GlobalState() : current_file_idx(0), finished(false) {}
+		GlobalState() : current_file_idx(0), finished(false) {
+		}
 
 		idx_t MaxThreads() const override {
 			return 1; // Single-threaded for now

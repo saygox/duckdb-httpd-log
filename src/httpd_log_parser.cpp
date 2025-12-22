@@ -21,10 +21,8 @@ bool HttpdLogParser::ParseTimestamp(const std::string &timestamp_str, timestamp_
 	// Format: 10/Oct/2000:13:55:36 -0700
 	// We need to parse this into a timestamp_t
 
-	static const char *month_names[] = {
-		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-	};
+	static const char *month_names[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+	                                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
 	std::regex timestamp_regex(R"((\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s*([-+]\d{4}))");
 	std::smatch match;
@@ -78,7 +76,8 @@ bool HttpdLogParser::ParseTimestamp(const std::string &timestamp_str, timestamp_
 	return true;
 }
 
-bool HttpdLogParser::ParseRequest(const std::string &request, std::string &method, std::string &path, std::string &protocol) {
+bool HttpdLogParser::ParseRequest(const std::string &request, std::string &method, std::string &path,
+                                  std::string &protocol) {
 	// Request format: "GET /index.html HTTP/1.0"
 	std::istringstream iss(request);
 
@@ -183,9 +182,11 @@ HttpdLogEntry HttpdLogParser::ParseCombinedLine(const std::string &line) {
 
 	// Use regex to parse Combined Log Format
 	// Format: %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-agent}i"
-	// Example: 192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326 "http://www.example.com/" "Mozilla/5.0"
+	// Example: 192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326
+	// "http://www.example.com/" "Mozilla/5.0"
 
-	std::regex log_regex("^(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+\\[([^\\]]+)\\]\\s+\"([^\"]*)\"\\s+(\\S+)\\s+(\\S+)\\s+\"([^\"]*)\"\\s+\"([^\"]*)\"");
+	std::regex log_regex("^(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+\\[([^\\]]+)\\]\\s+\"([^\"]*)\"\\s+(\\S+)\\s+(\\S+)\\s+\"([^"
+	                     "\"]*)\"\\s+\"([^\"]*)\"");
 
 	std::smatch match;
 	if (!std::regex_match(line, match, log_regex)) {
