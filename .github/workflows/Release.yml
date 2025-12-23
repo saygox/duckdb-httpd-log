@@ -38,12 +38,34 @@ jobs:
       - name: Display artifact structure
         run: ls -R ./artifacts
 
+      - name: Prepare release files
+        run: |
+          mkdir -p ./release-files
+
+          # Process each artifact directory
+          for artifact_dir in ./artifacts/*/; do
+            artifact_name=$(basename "$artifact_dir")
+
+            # Rename .duckdb_extension files
+            if [ -f "$artifact_dir/httpd_log.duckdb_extension" ]; then
+              cp "$artifact_dir/httpd_log.duckdb_extension" "./release-files/${artifact_name}.duckdb_extension"
+            fi
+
+            # Rename .wasm files
+            if [ -f "$artifact_dir/httpd_log.duckdb_extension.wasm" ]; then
+              cp "$artifact_dir/httpd_log.duckdb_extension.wasm" "./release-files/${artifact_name}.duckdb_extension.wasm"
+            fi
+          done
+
+          echo "Release files prepared:"
+          ls -lh ./release-files
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           draft: false
           prerelease: false
           generate_release_notes: true
-          files: ./artifacts/**/*
+          files: ./release-files/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
