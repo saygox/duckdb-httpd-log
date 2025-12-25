@@ -4,6 +4,7 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "httpd_log_format_parser.hpp"
+#include "httpd_log_buffered_reader.hpp"
 #include <memory>
 #include <vector>
 
@@ -31,7 +32,7 @@ private:
 	// Global state for reading files
 	struct GlobalState : public GlobalTableFunctionState {
 		idx_t current_file_idx;
-		unique_ptr<FileHandle> file_handle;
+		unique_ptr<HttpdLogBufferedReader> buffered_reader;
 		string current_filename;
 		bool finished;
 

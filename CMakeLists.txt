@@ -16,9 +16,9 @@ include_directories(src/include)
 
 set(EXTENSION_SOURCES
     src/httpd_log_extension.cpp
-    src/httpd_log_parser.cpp
     src/httpd_log_format_parser.cpp
     src/httpd_log_table_function.cpp
+    src/httpd_log_buffered_reader.cpp
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
