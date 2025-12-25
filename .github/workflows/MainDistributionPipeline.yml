@@ -23,17 +23,17 @@ jobs:
     # Skip build on develop branch (format check only)
     # Build only on: main branch push, or pull requests
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.2
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.3
     with:
-      duckdb_version: v1.4.2
-      ci_tools_version: v1.4.2
+      duckdb_version: v1.4.3
+      ci_tools_version: v1.4.3
       extension_name: httpd_log
 
   code-quality-check:
     name: Code Quality Check
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.4.2
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.4.3
     with:
-      duckdb_version: v1.4.2
-      ci_tools_version: v1.4.2
+      duckdb_version: v1.4.3
+      ci_tools_version: v1.4.3
       extension_name: httpd_log
       format_checks: 'format;tidy'
