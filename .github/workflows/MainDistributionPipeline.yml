@@ -20,6 +20,9 @@ concurrency:
 jobs:
   duckdb-stable-build:
     name: Build extension binaries
+    # Skip build on develop branch (format check only)
+    # Build only on: main branch push, or pull requests
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.2
     with:
       duckdb_version: v1.4.2
