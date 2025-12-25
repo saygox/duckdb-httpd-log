@@ -14,10 +14,10 @@ concurrency:
 jobs:
   build:
     name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.2
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.3
     with:
-      duckdb_version: v1.4.2
-      ci_tools_version: v1.4.2
+      duckdb_version: v1.4.3
+      ci_tools_version: v1.4.3
       extension_name: httpd_log
 
   release:
@@ -42,18 +42,34 @@ jobs:
         run: |
           mkdir -p ./release-files
 
+          # Get version from tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+
           # Process each artifact directory
           for artifact_dir in ./artifacts/*/; do
             artifact_name=$(basename "$artifact_dir")
 
-            # Rename .duckdb_extension files
+            # Extract platform name (e.g., linux_amd64, windows_amd64)
+            platform=$(echo "$artifact_name" | sed 's/httpd_log-v[0-9.]*-extension-//')
+
+            # Handle .duckdb_extension files (Linux, macOS, Windows)
             if [ -f "$artifact_dir/httpd_log.duckdb_extension" ]; then
-              cp "$artifact_dir/httpd_log.duckdb_extension" "./release-files/${artifact_name}.duckdb_extension"
+              # Windows uses ZIP
+              if [[ "$platform" == windows* ]]; then
+                cd "$artifact_dir"
+                zip "../../release-files/httpd_log-v${VERSION}-${platform}.zip" httpd_log.duckdb_extension
+                cd -
+              else
+                # Linux and macOS use tar.gz
+                tar -czf "./release-files/httpd_log-v${VERSION}-${platform}.tar.gz" \
+                  -C "$artifact_dir" httpd_log.duckdb_extension
+              fi
             fi
 
-            # Rename .wasm files
+            # Handle .wasm files
             if [ -f "$artifact_dir/httpd_log.duckdb_extension.wasm" ]; then
-              cp "$artifact_dir/httpd_log.duckdb_extension.wasm" "./release-files/${artifact_name}.duckdb_extension.wasm"
+              tar -czf "./release-files/httpd_log-v${VERSION}-${platform}.tar.gz" \
+                -C "$artifact_dir" httpd_log.duckdb_extension.wasm
             fi
           done
 

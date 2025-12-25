@@ -286,23 +286,56 @@ Follow [Semantic Versioning](https://semver.org/):
 
 ### Installing from GitHub Releases (Recommended)
 
-Download the pre-built binary for your platform from the [Releases page](https://github.com/<your-username>/httpd_log/releases):
+Download and extract the pre-built binary for your platform from the [Releases page](https://github.com/<your-username>/httpd_log/releases).
+
+#### Linux/macOS
+
+```bash
+# Download the archive for your platform
+# Linux x86_64:
+curl -L -O https://github.com/<your-username>/httpd_log/releases/download/v1.0.0/httpd_log-v1.0.0-linux_amd64.tar.gz
+
+# macOS ARM64 (M1/M2/M3):
+curl -L -O https://github.com/<your-username>/httpd_log/releases/download/v1.0.0/httpd_log-v1.0.0-osx_arm64.tar.gz
+
+# Extract the archive
+tar -xzf httpd_log-v1.0.0-*.tar.gz
+
+# Launch DuckDB
+duckdb -unsigned
+```
 
 ```sql
--- Linux x86_64
-INSTALL 'https://github.com/<your-username>/httpd_log/releases/download/v1.0.0/httpd_log-v1.4.2-extension-linux_amd64.duckdb_extension';
+-- Install the extracted extension
+INSTALL './httpd_log.duckdb_extension';
 LOAD httpd_log;
+```
 
--- macOS ARM64 (M1/M2/M3)
-INSTALL 'https://github.com/<your-username>/httpd_log/releases/download/v1.0.0/httpd_log-v1.4.2-extension-osx_arm64.duckdb_extension';
-LOAD httpd_log;
+#### Windows
 
--- Windows x86_64
-INSTALL 'https://github.com/<your-username>/httpd_log/releases/download/v1.0.0/httpd_log-v1.4.2-extension-windows_amd64.duckdb_extension';
+```powershell
+# Download and extract the ZIP file
+# (Download httpd_log-v1.0.0-windows_amd64.zip from the Releases page)
+Expand-Archive httpd_log-v1.0.0-windows_amd64.zip
+
+# Launch DuckDB
+duckdb -unsigned
+```
+
+```sql
+-- Install the extracted extension
+INSTALL './httpd_log.duckdb_extension';
 LOAD httpd_log;
 ```
 
 **Note:** Replace `<your-username>` with your GitHub username and `v1.0.0` with the desired version.
+
+**Available platforms:**
+- `linux_amd64` - Linux x86_64
+- `linux_arm64` - Linux ARM64
+- `osx_amd64` - macOS x86_64 (Intel)
+- `osx_arm64` - macOS ARM64 (M1/M2/M3)
+- `windows_amd64` - Windows x86_64
 
 You will need to launch DuckDB with the `allow_unsigned_extensions` option:
 
