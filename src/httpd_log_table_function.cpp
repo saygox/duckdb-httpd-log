@@ -121,9 +121,9 @@ unique_ptr<GlobalTableFunctionState> HttpdLogTableFunction::Init(ClientContext &
 		state->current_file_idx = 0;
 		state->current_filename = bind_data.files[0];
 
-		// Open first file
+		// Open first file with buffered reader
 		auto &fs = FileSystem::GetFileSystem(context);
-		state->file_handle = fs.OpenFile(state->current_filename, FileFlags::FILE_FLAGS_READ);
+		state->buffered_reader = make_uniq<HttpdLogBufferedReader>(fs, state->current_filename);
 	} else {
 		state->finished = true;
 	}
@@ -150,34 +150,13 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 		string line;
 		bool has_line = false;
 
-		if (state.file_handle) {
-			// Read until newline
-			std::stringstream ss;
-			char c;
-			bool found_newline = false;
-
-			while (state.file_handle->Read(&c, 1) == 1) {
-				if (c == '\n') {
-					found_newline = true;
-					break;
-				}
-				ss << c;
-			}
-
-			if (found_newline || ss.tellp() > 0) {
-				line = ss.str();
-				has_line = true;
-
-				// Remove trailing \r if present
-				if (!line.empty() && line.back() == '\r') {
-					line.pop_back();
-				}
-			}
+		if (state.buffered_reader) {
+			has_line = state.buffered_reader->ReadLine(line);
 		}
 
 		// If no line read, move to next file
 		if (!has_line) {
-			state.file_handle.reset();
+			state.buffered_reader.reset();
 			state.current_file_idx++;
 
 			if (state.current_file_idx >= bind_data.files.size()) {
@@ -186,7 +165,7 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			}
 
 			state.current_filename = bind_data.files[state.current_file_idx];
-			state.file_handle = fs.OpenFile(state.current_filename, FileFlags::FILE_FLAGS_READ);
+			state.buffered_reader = make_uniq<HttpdLogBufferedReader>(fs, state.current_filename);
 			continue;
 		}
 
