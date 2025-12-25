@@ -1,5 +1,4 @@
 #include "httpd_log_table_function.hpp"
-#include "httpd_log_parser.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/types/timestamp.hpp"
