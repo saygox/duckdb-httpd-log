@@ -36,6 +36,12 @@ private:
 		string current_filename;
 		bool finished;
 
+		// Profiling statistics
+		idx_t total_rows = 0;      // Total number of rows read
+		idx_t bytes_scanned = 0;   // Total bytes scanned
+		idx_t files_processed = 0; // Number of files processed
+		idx_t parse_errors = 0;    // Number of parse errors
+
 		GlobalState() : current_file_idx(0), finished(false) {
 		}
 
@@ -51,6 +57,9 @@ private:
 	static unique_ptr<GlobalTableFunctionState> Init(ClientContext &context, TableFunctionInitInput &input);
 
 	static void Function(ClientContext &context, TableFunctionInput &data, DataChunk &output);
+
+	// Profiling: return dynamic statistics
+	static InsertionOrderPreservingMap<string> DynamicToString(TableFunctionDynamicToStringInput &input);
 };
 
 } // namespace duckdb

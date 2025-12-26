@@ -159,6 +159,9 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			state.buffered_reader.reset();
 			state.current_file_idx++;
 
+			// Profiling: increment files processed counter
+			state.files_processed++;
+
 			if (state.current_file_idx >= bind_data.files.size()) {
 				state.finished = true;
 				break;
@@ -174,9 +177,18 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			continue;
 		}
 
+		// Profiling: count bytes scanned (line size + newline character)
+		state.bytes_scanned += line.size() + 1;
+
 		// Parse the line using dynamic parser
 		vector<string> parsed_values = HttpdLogFormatParser::ParseLogLine(line, bind_data.parsed_format);
 		bool parse_error = parsed_values.empty();
+
+		// Profiling: count parse errors and total rows
+		if (parse_error) {
+			state.parse_errors++;
+		}
+		state.total_rows++;
 
 		// Fill output chunk dynamically based on parsed format
 		idx_t col_idx = 0;
@@ -310,11 +322,35 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 	output.SetCardinality(output_idx);
 }
 
+InsertionOrderPreservingMap<string> HttpdLogTableFunction::DynamicToString(TableFunctionDynamicToStringInput &input) {
+	InsertionOrderPreservingMap<string> result;
+
+	if (!input.global_state) {
+		return result;
+	}
+
+	auto &global_state = input.global_state->Cast<GlobalState>();
+
+	// Add profiling statistics
+	result["Total Rows"] = to_string(global_state.total_rows);
+	result["Bytes Scanned"] = to_string(global_state.bytes_scanned);
+	result["Files Processed"] = to_string(global_state.files_processed);
+
+	if (global_state.parse_errors > 0) {
+		result["Parse Errors"] = to_string(global_state.parse_errors);
+	}
+
+	return result;
+}
+
 void HttpdLogTableFunction::RegisterFunction(ExtensionLoader &loader) {
 	// Create table function with optional format_type and format_str parameters
 	TableFunction read_httpd_log("read_httpd_log", {LogicalType::VARCHAR}, Function, Bind, Init);
 	read_httpd_log.named_parameters["format_type"] = LogicalType::VARCHAR;
 	read_httpd_log.named_parameters["format_str"] = LogicalType::VARCHAR;
+
+	// Register profiling callback for EXPLAIN ANALYZE
+	read_httpd_log.dynamic_to_string = DynamicToString;
 
 	// Register the function
 	loader.RegisterFunction(read_httpd_log);
