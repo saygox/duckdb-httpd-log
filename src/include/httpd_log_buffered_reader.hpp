@@ -13,7 +13,7 @@ private:
 	void RefillBuffer();
 
 	unique_ptr<FileHandle> file_handle;
-	static constexpr idx_t BUFFER_SIZE = 65536; // 64KB
+	static constexpr idx_t BUFFER_SIZE = 2097152; // 2MB
 	unsafe_unique_array<char> buffer;
 	idx_t buffer_offset = 0;
 	idx_t buffer_size = 0;
