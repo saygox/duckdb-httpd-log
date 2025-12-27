@@ -2,7 +2,9 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/types/timestamp.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "duckdb/main/client_context.hpp"
+#include <chrono>
 #include <sstream>
 
 namespace duckdb {
@@ -151,13 +153,19 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 		bool has_line = false;
 
 		if (state.buffered_reader) {
+			auto start = std::chrono::high_resolution_clock::now();
 			has_line = state.buffered_reader->ReadLine(line);
+			auto end = std::chrono::high_resolution_clock::now();
+			state.time_file_io += std::chrono::duration<double>(end - start).count();
 		}
 
 		// If no line read, move to next file
 		if (!has_line) {
 			state.buffered_reader.reset();
 			state.current_file_idx++;
+
+			// Profiling: increment files processed counter
+			state.files_processed++;
 
 			if (state.current_file_idx >= bind_data.files.size()) {
 				state.finished = true;
@@ -174,11 +182,24 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			continue;
 		}
 
+		// Profiling: count bytes scanned (line size + newline character)
+		state.bytes_scanned += line.size() + 1;
+
 		// Parse the line using dynamic parser
+		auto start_regex = std::chrono::high_resolution_clock::now();
 		vector<string> parsed_values = HttpdLogFormatParser::ParseLogLine(line, bind_data.parsed_format);
+		auto end_regex = std::chrono::high_resolution_clock::now();
+		state.time_regex += std::chrono::duration<double>(end_regex - start_regex).count();
 		bool parse_error = parsed_values.empty();
 
+		// Profiling: count parse errors and total rows
+		if (parse_error) {
+			state.parse_errors++;
+		}
+		state.total_rows++;
+
 		// Fill output chunk dynamically based on parsed format
+		auto start_parse = std::chrono::high_resolution_clock::now();
 		idx_t col_idx = 0;
 		idx_t value_idx = 0;
 
@@ -286,6 +307,9 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			}
 		}
 
+		auto end_parse = std::chrono::high_resolution_clock::now();
+		state.time_parsing += std::chrono::duration<double>(end_parse - start_parse).count();
+
 		// Add metadata columns at the end
 		// filename
 		FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
@@ -310,11 +334,49 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 	output.SetCardinality(output_idx);
 }
 
+InsertionOrderPreservingMap<string> HttpdLogTableFunction::DynamicToString(TableFunctionDynamicToStringInput &input) {
+	InsertionOrderPreservingMap<string> result;
+
+	if (!input.global_state) {
+		return result;
+	}
+
+	auto &global_state = input.global_state->Cast<GlobalState>();
+
+	// Add profiling statistics
+	result["Total Rows"] = to_string(global_state.total_rows);
+	result["Bytes Scanned"] = to_string(global_state.bytes_scanned);
+	result["Files Processed"] = to_string(global_state.files_processed);
+
+	if (global_state.parse_errors > 0) {
+		result["Parse Errors"] = to_string(global_state.parse_errors);
+	}
+
+	// Add timing breakdown
+	if (global_state.time_file_io > 0) {
+		result["Time File I/O (s)"] = StringUtil::Format("%.6f", global_state.time_file_io);
+	}
+	if (global_state.time_regex > 0) {
+		result["Time Regex (s)"] = StringUtil::Format("%.6f", global_state.time_regex);
+	}
+	if (global_state.time_parsing > 0) {
+		result["Time Parsing (s)"] = StringUtil::Format("%.6f", global_state.time_parsing);
+	}
+	if (global_state.buffer_refills > 0) {
+		result["Buffer Refills"] = to_string(global_state.buffer_refills);
+	}
+
+	return result;
+}
+
 void HttpdLogTableFunction::RegisterFunction(ExtensionLoader &loader) {
 	// Create table function with optional format_type and format_str parameters
 	TableFunction read_httpd_log("read_httpd_log", {LogicalType::VARCHAR}, Function, Bind, Init);
 	read_httpd_log.named_parameters["format_type"] = LogicalType::VARCHAR;
 	read_httpd_log.named_parameters["format_str"] = LogicalType::VARCHAR;
+
+	// Register profiling callback for EXPLAIN ANALYZE
+	read_httpd_log.dynamic_to_string = DynamicToString;
 
 	// Register the function
 	loader.RegisterFunction(read_httpd_log);
