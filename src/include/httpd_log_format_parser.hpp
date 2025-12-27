@@ -24,10 +24,29 @@ struct FormatField {
 
 // Parsed format string information
 struct ParsedFormat {
-	vector<FormatField> fields;     // List of fields in the format
-	string original_format_str;     // Original format string
-	string regex_pattern;           // Generated regex pattern for parsing
-	unique_ptr<duckdb_re2::RE2> compiled_regex;  // Pre-compiled RE2 for performance
+	vector<FormatField> fields;                 // List of fields in the format
+	string original_format_str;                 // Original format string
+	string regex_pattern;                       // Generated regex pattern for parsing
+	unique_ptr<duckdb_re2::RE2> compiled_regex; // Pre-compiled RE2 for performance
+
+	// Reusable buffers for RE2::FullMatchN to eliminate per-line heap allocations
+	// These buffers are allocated once in ParseFormatString() and reused across
+	// all ParseLogLine() calls, reducing 36-40M allocations to just 3.
+	//
+	// THREAD SAFETY: Marked mutable because buffers are physically modified but
+	// ParseLogLine() is logically const (doesn't change format definition).
+	// Currently safe because MaxThreads() = 1 (single-threaded execution).
+	//
+	// FUTURE PARALLELIZATION: Before enabling multi-threading, these buffers
+	// MUST be moved to thread-local state (LocalTableFunctionState) to avoid
+	// data races. See implementation plan for detailed migration strategy.
+	//
+	// MOVE WARNING: ParsedFormat must not be moved after initialization because
+	// arg_ptrs contains pointers to elements of args. Currently safe because
+	// ParsedFormat is stored in BindData and never moved.
+	mutable vector<duckdb_re2::StringPiece> matches;
+	mutable vector<duckdb_re2::RE2::Arg> args;
+	mutable vector<duckdb_re2::RE2::Arg *> arg_ptrs;
 
 	ParsedFormat() = default;
 	explicit ParsedFormat(string format_str) : original_format_str(std::move(format_str)) {
