@@ -3,7 +3,7 @@
 #include "duckdb/common/types/time.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 #include "duckdb/common/types/interval.hpp"
-#include <regex>
+#include "duckdb/common/exception.hpp"
 #include <sstream>
 
 namespace duckdb {
@@ -149,8 +149,13 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 	// Generate regex pattern from the parsed fields
 	result.regex_pattern = GenerateRegexPattern(result);
 
-	// Compile the regex pattern once for performance
-	result.compiled_regex = std::regex(result.regex_pattern);
+	// Compile the regex pattern once for performance using RE2
+	duckdb_re2::RE2::Options options;
+	options.set_log_errors(false);
+	result.compiled_regex = make_uniq<duckdb_re2::RE2>(result.regex_pattern, options);
+	if (!result.compiled_regex->ok()) {
+		throw InvalidInputException("Invalid regex pattern: " + result.compiled_regex->error());
+	}
 
 	return result;
 }
@@ -340,17 +345,30 @@ bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, s
 vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const ParsedFormat &parsed_format) {
 	vector<string> result;
 
-	// Use the pre-compiled regex for performance
-	std::smatch match;
+	// Use the pre-compiled RE2 for performance
+	int num_groups = parsed_format.compiled_regex->NumberOfCapturingGroups();
 
-	if (!std::regex_match(line, match, parsed_format.compiled_regex)) {
+	// Create StringPiece arguments for RE2
+	duckdb_re2::StringPiece input(line);
+	vector<duckdb_re2::RE2::Arg> args(num_groups);
+	vector<duckdb_re2::RE2::Arg*> arg_ptrs(num_groups);
+	vector<duckdb_re2::StringPiece> matches(num_groups);
+
+	for (int i = 0; i < num_groups; i++) {
+		args[i] = &matches[i];
+		arg_ptrs[i] = &args[i];
+	}
+
+	// Perform the match
+	if (!duckdb_re2::RE2::FullMatchN(input, *parsed_format.compiled_regex, arg_ptrs.data(), num_groups)) {
 		// Parsing failed - return empty vector
 		return result;
 	}
 
-	// Extract matched groups (skip group 0 which is the full match)
-	for (size_t i = 1; i < match.size(); i++) {
-		result.push_back(match[i].str());
+	// Extract matched groups
+	result.reserve(num_groups);
+	for (int i = 0; i < num_groups; i++) {
+		result.push_back(matches[i].as_string());
 	}
 
 	return result;
