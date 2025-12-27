@@ -149,6 +149,9 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 	// Generate regex pattern from the parsed fields
 	result.regex_pattern = GenerateRegexPattern(result);
 
+	// Compile the regex pattern once for performance
+	result.compiled_regex = std::regex(result.regex_pattern);
+
 	return result;
 }
 
@@ -337,11 +340,10 @@ bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, s
 vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const ParsedFormat &parsed_format) {
 	vector<string> result;
 
-	// Use the generated regex pattern to parse the line
-	std::regex log_regex(parsed_format.regex_pattern);
+	// Use the pre-compiled regex for performance
 	std::smatch match;
 
-	if (!std::regex_match(line, match, log_regex)) {
+	if (!std::regex_match(line, match, parsed_format.compiled_regex)) {
 		// Parsing failed - return empty vector
 		return result;
 	}

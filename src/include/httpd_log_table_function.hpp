@@ -42,6 +42,12 @@ private:
 		idx_t files_processed = 0; // Number of files processed
 		idx_t parse_errors = 0;    // Number of parse errors
 
+		// Profiling statistics - timing breakdown
+		double time_file_io = 0.0;   // Time spent in file I/O
+		double time_regex = 0.0;     // Time spent in regex matching
+		double time_parsing = 0.0;   // Time spent in parsing/conversion
+		idx_t buffer_refills = 0;    // Number of buffer refills
+
 		GlobalState() : current_file_idx(0), finished(false) {
 		}
 

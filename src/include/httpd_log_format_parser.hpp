@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -23,9 +24,10 @@ struct FormatField {
 
 // Parsed format string information
 struct ParsedFormat {
-	vector<FormatField> fields; // List of fields in the format
-	string original_format_str; // Original format string
-	string regex_pattern;       // Generated regex pattern for parsing
+	vector<FormatField> fields;     // List of fields in the format
+	string original_format_str;     // Original format string
+	string regex_pattern;           // Generated regex pattern for parsing
+	std::regex compiled_regex;      // Pre-compiled regex for performance
 
 	ParsedFormat() = default;
 	explicit ParsedFormat(string format_str) : original_format_str(std::move(format_str)) {
