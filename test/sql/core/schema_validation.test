@@ -4,13 +4,13 @@
 
 require httpd_log
 
-# Test 1: Default schema has 10 columns (raw=false)
+# Test 1: Default schema has 11 columns (raw=false)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log')
 );
 ----
-10
+11
 
 # Test 2: Verify default schema has expected columns
 query I
@@ -30,13 +30,13 @@ WHERE column_name = 'timestamp' AND column_type = 'TIMESTAMP';
 ----
 1
 
-# Test 4: Raw mode schema has 13 columns
+# Test 4: Raw mode schema has 14 columns
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', raw=true)
 );
 ----
-13
+14
 
 # Test 5: Verify raw mode has diagnostic columns
 query I
@@ -80,15 +80,15 @@ SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', format_type='common')
 );
 ----
-10
+11
 
-# Test 10: Combined format with raw mode has 15 columns (10 base + 2 combined + 3 raw)
+# Test 10: Combined format with raw mode has 16 columns (11 base + 2 combined + 3 raw)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
 );
 ----
-15
+16
 
 # Test 11: Verify timestamp column always exists
 query I

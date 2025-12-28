@@ -82,7 +82,7 @@ WHERE parse_error = 1;
 ----
 6
 
-# Test 8: Verify all 15 columns are returned for combined format
+# Test 8: Verify all 16 columns are returned for combined format
 query I
 SELECT COUNT(*) FROM (
     SELECT
@@ -93,6 +93,7 @@ SELECT COUNT(*) FROM (
         timestamp_raw,
         method,
         path,
+        query_string,
         protocol,
         status,
         bytes,
@@ -129,10 +130,10 @@ query I
 SELECT
     (SELECT COUNT(*) FROM (
         DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
-    )) = 13 AND
+    )) = 14 AND
     (SELECT COUNT(*) FROM (
         DESCRIBE SELECT * FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
-    )) = 15;
+    )) = 16;
 ----
 1
 

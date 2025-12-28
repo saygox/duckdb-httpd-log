@@ -22,11 +22,14 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%r", "request", LogicalTypeId::VARCHAR},
     {"%m", "method", LogicalTypeId::VARCHAR},
     {"%U", "path", LogicalTypeId::VARCHAR},
+    {"%q", "query_string", LogicalTypeId::VARCHAR},
     {"%H", "protocol", LogicalTypeId::VARCHAR},
     {"%p", "server_port", LogicalTypeId::INTEGER},
     {"%P", "process_id", LogicalTypeId::INTEGER},
-    {"%D", "time_us", LogicalTypeId::BIGINT},
-    {"%T", "time_sec", LogicalTypeId::BIGINT},
+    // Duration directives - collision handled specially by GetDurationPriority()
+    // When multiple duration directives exist, only highest precision is kept
+    {"%D", "duration", LogicalTypeId::INTERVAL}, // Microseconds
+    {"%T", "duration", LogicalTypeId::INTERVAL}, // Seconds (or with modifier: ms, us, s)
 
     // Status code directives (collision pair)
     {"%>s", "status", LogicalTypeId::INTEGER, "", 0},         // Final status gets base name
@@ -57,6 +60,28 @@ const std::vector<TypedHeaderRule> HttpdLogFormatParser::typed_header_rules = {
 std::unordered_map<string, const DirectiveDefinition *> HttpdLogFormatParser::directive_cache;
 std::unordered_map<string, const TypedHeaderRule *> HttpdLogFormatParser::header_cache;
 bool HttpdLogFormatParser::cache_initialized = false;
+
+// Get priority for duration directives (lower = higher priority)
+// Returns -1 for non-duration directives
+// Priority order: %D (0) > %{us}T (1) > %{ms}T (2) > %T (3) > %{s}T (4)
+static int GetDurationPriority(const string &directive, const string &modifier) {
+	if (directive == "%D") {
+		return 0; // microseconds (highest priority)
+	}
+	if (directive == "%T") {
+		if (modifier == "us") {
+			return 1; // microseconds
+		}
+		if (modifier == "ms") {
+			return 2; // milliseconds
+		}
+		if (modifier == "s") {
+			return 4; // seconds (lowest)
+		}
+		return 3; // %T without modifier = seconds (prefer over %{s}T)
+	}
+	return -1; // Not a duration directive
+}
 
 // Initialize lookup caches from static vectors
 void HttpdLogFormatParser::InitializeCaches() {
@@ -125,6 +150,12 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 		return "peer_host";
 	}
 
+	// Handle %{UNIT}T - time taken with unit (ms, us, s)
+	// All variants produce "duration" column name (same as %D and %T)
+	if (directive == "%T" && (modifier == "ms" || modifier == "us" || modifier == "s")) {
+		return "duration";
+	}
+
 	// Look up directive definition
 	const DirectiveDefinition *def = GetDirectiveDefinition(directive);
 	if (def && !def->column_name.empty()) {
@@ -152,6 +183,12 @@ LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const str
 
 		// Default: VARCHAR for all other headers
 		return LogicalType::VARCHAR;
+	}
+
+	// Handle %{UNIT}T - time taken with unit (ms, us, s)
+	// All variants return INTERVAL type
+	if (directive == "%T" && (modifier == "ms" || modifier == "us" || modifier == "s")) {
+		return LogicalType::INTERVAL;
 	}
 
 	// Look up directive definition
@@ -365,14 +402,25 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 				return_types.push_back(LogicalType::VARCHAR);
 			}
 		}
-		// Special handling for %r (request) - decompose into method, path, protocol
+		// Special handling for %r (request) - decompose into method, path, query_string, protocol
+		// Skip sub-columns that are overridden by individual directives (%m, %U, %q, %H)
 		else if (field.directive == "%r") {
-			names.push_back("method");
-			return_types.push_back(LogicalType::VARCHAR);
-			names.push_back("path");
-			return_types.push_back(LogicalType::VARCHAR);
-			names.push_back("protocol");
-			return_types.push_back(LogicalType::VARCHAR);
+			if (!field.skip_method) {
+				names.push_back("method");
+				return_types.push_back(LogicalType::VARCHAR);
+			}
+			if (!field.skip_path) {
+				names.push_back("path");
+				return_types.push_back(LogicalType::VARCHAR);
+			}
+			if (!field.skip_query_string) {
+				names.push_back("query_string");
+				return_types.push_back(LogicalType::VARCHAR);
+			}
+			if (!field.skip_protocol) {
+				names.push_back("protocol");
+				return_types.push_back(LogicalType::VARCHAR);
+			}
 		}
 		// Regular field
 		else {
@@ -451,12 +499,24 @@ bool HttpdLogFormatParser::ParseTimestamp(const string &timestamp_str, timestamp
 	return true;
 }
 
-bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, string &path, string &protocol) {
-	// Request format: "GET /index.html HTTP/1.0"
+bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, string &path, string &query_string,
+                                        string &protocol) {
+	// Request format: "GET /index.html?foo=bar HTTP/1.0"
 	std::istringstream iss(request);
+	string full_path;
 
-	if (!(iss >> method >> path >> protocol)) {
+	if (!(iss >> method >> full_path >> protocol)) {
 		return false;
+	}
+
+	// Split path and query string at '?'
+	size_t query_pos = full_path.find('?');
+	if (query_pos != string::npos) {
+		path = full_path.substr(0, query_pos);
+		query_string = full_path.substr(query_pos); // includes '?'
+	} else {
+		path = full_path;
+		query_string = "";
 	}
 
 	return true;
@@ -497,6 +557,44 @@ vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const Pars
 }
 
 void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_format) {
+	// Step 0: Handle %r vs individual directive collisions
+	// When %m, %U, %q, or %H are present alongside %r, skip the corresponding %r sub-column
+	// Individual directives take priority over %r decomposition
+	bool has_m = false, has_U = false, has_q = false, has_H = false;
+	idx_t r_field_idx = DConstants::INVALID_INDEX;
+
+	for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
+		const string &dir = parsed_format.fields[i].directive;
+		if (dir == "%r") {
+			r_field_idx = i;
+		} else if (dir == "%m") {
+			has_m = true;
+		} else if (dir == "%U") {
+			has_U = true;
+		} else if (dir == "%q") {
+			has_q = true;
+		} else if (dir == "%H") {
+			has_H = true;
+		}
+	}
+
+	// If %r is present with individual directives, set skip flags
+	if (r_field_idx != DConstants::INVALID_INDEX) {
+		auto &r_field = parsed_format.fields[r_field_idx];
+		if (has_m) {
+			r_field.skip_method = true;
+		}
+		if (has_U) {
+			r_field.skip_path = true;
+		}
+		if (has_q) {
+			r_field.skip_query_string = true;
+		}
+		if (has_H) {
+			r_field.skip_protocol = true;
+		}
+	}
+
 	// Step 1: Build collision map - group field indices by column name
 	std::unordered_map<string, vector<idx_t>> collision_map;
 	for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
@@ -510,6 +608,32 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 
 		if (field_indices.size() <= 1) {
 			continue; // No collision for this column name
+		}
+
+		// Special case: Duration directives - keep only highest precision, skip others
+		// This handles %D, %T, %{ms}T, %{us}T, %{s}T collisions
+		if (column_name == "duration") {
+			// Find field with lowest priority number (= highest precision)
+			idx_t best_idx = field_indices[0];
+			int best_priority = GetDurationPriority(parsed_format.fields[best_idx].directive,
+			                                        parsed_format.fields[best_idx].modifier);
+
+			for (idx_t idx : field_indices) {
+				int priority =
+				    GetDurationPriority(parsed_format.fields[idx].directive, parsed_format.fields[idx].modifier);
+				if (priority >= 0 && (best_priority < 0 || priority < best_priority)) {
+					best_priority = priority;
+					best_idx = idx;
+				}
+			}
+
+			// Mark all but the best as should_skip
+			for (idx_t idx : field_indices) {
+				if (idx != best_idx) {
+					parsed_format.fields[idx].should_skip = true;
+				}
+			}
+			continue; // Skip standard collision resolution for duration
 		}
 
 		// Separate fields by directive type to determine collision type

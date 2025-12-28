@@ -1,0 +1,114 @@
+# name: test/sql/directives/query_string.test
+# description: Tests for %q directive and %r with query_string
+# group: [directives]
+
+require httpd_log
+
+# Test 1: %r now includes query_string column
+query TTTT
+SELECT method, path, query_string, protocol
+FROM read_httpd_log(
+    'test/data/directives/query_string.log',
+    format_str='%h %l %u %t "%r" %>s %b'
+)
+ORDER BY path;
+----
+POST	/api/data	(empty)	HTTP/1.1
+GET	/page	?id=123	HTTP/1.1
+GET	/search	?q=test&lang=en	HTTP/1.1
+
+# Test 2: %q directive standalone
+query T
+SELECT query_string
+FROM read_httpd_log(
+    'test/data/directives/request_collision.log',
+    format_str='%h %l %u %t "%r" %>s %b %m %U %q %H'
+)
+ORDER BY query_string;
+----
+-
+?q=test
+
+# Test 3: Column count with %r (should have query_string)
+query I
+SELECT COUNT(*) FILTER (WHERE column_name = 'query_string')
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/query_string.log',
+        format_str='%h %l %u %t "%r" %>s %b'
+    )
+);
+----
+1
+
+# Test 4: %r + %m collision - only one method column
+query I
+SELECT COUNT(*) FILTER (WHERE column_name = 'method')
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/request_collision.log',
+        format_str='%h %l %u %t "%r" %>s %b %m %U %q %H'
+    )
+);
+----
+1
+
+# Test 5: %r + %U collision - only one path column
+query I
+SELECT COUNT(*) FILTER (WHERE column_name = 'path')
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/request_collision.log',
+        format_str='%h %l %u %t "%r" %>s %b %m %U %q %H'
+    )
+);
+----
+1
+
+# Test 6: %r + %q collision - only one query_string column
+query I
+SELECT COUNT(*) FILTER (WHERE column_name = 'query_string')
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/request_collision.log',
+        format_str='%h %l %u %t "%r" %>s %b %m %U %q %H'
+    )
+);
+----
+1
+
+# Test 7: %r + %H collision - only one protocol column
+query I
+SELECT COUNT(*) FILTER (WHERE column_name = 'protocol')
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/request_collision.log',
+        format_str='%h %l %u %t "%r" %>s %b %m %U %q %H'
+    )
+);
+----
+1
+
+# Test 8: Values from individual directives take priority over %r
+query TTTT
+SELECT method, path, query_string, protocol
+FROM read_httpd_log(
+    'test/data/directives/request_collision.log',
+    format_str='%h %l %u %t "%r" %>s %b %m %U %q %H'
+)
+ORDER BY method;
+----
+GET	/search	?q=test	HTTP/1.1
+POST	/api/data	-	HTTP/1.1
+
+# Test 9: Empty query_string becomes empty string
+query T
+SELECT query_string
+FROM read_httpd_log(
+    'test/data/directives/query_string.log',
+    format_str='%h %l %u %t "%r" %>s %b'
+)
+WHERE path = '/api/data';
+----
+(empty)
+

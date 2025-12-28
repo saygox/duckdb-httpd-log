@@ -10,10 +10,10 @@ The output schema varies based on two parameters:
 
 ### Schema Variations
 
-- **Common format** with `raw=false` (default): **10 columns**
-- **Common format** with `raw=true`: **13 columns** (adds 3 diagnostic columns)
-- **Combined format** with `raw=false`: **12 columns**
-- **Combined format** with `raw=true`: **15 columns** (adds 3 diagnostic columns)
+- **Common format** with `raw=false` (default): **11 columns**
+- **Common format** with `raw=true`: **14 columns** (adds 3 diagnostic columns)
+- **Combined format** with `raw=false`: **13 columns**
+- **Combined format** with `raw=true`: **16 columns** (adds 3 diagnostic columns)
 
 ## Supported Directives
 
@@ -31,9 +31,10 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `timestamp` | TIMESTAMP | `%t` | ✓ | ✓ | Parsed request timestamp (converted to UTC) |
 | `timestamp_raw` | VARCHAR | `%t` | ✗ | ✓ | Original timestamp string |
 | `request` | VARCHAR | `%r` | ✓ | ✓ | Full request line |
-| `method` | VARCHAR | `%m` | ✓ | ✓ | HTTP method (GET, POST, etc.) |
-| `path` | VARCHAR | `%U` | ✓ | ✓ | Request URL path |
-| `protocol` | VARCHAR | `%H` | ✓ | ✓ | HTTP protocol version |
+| `method` | VARCHAR | `%m` or `%r` | ✓ | ✓ | HTTP method (GET, POST, etc.) |
+| `path` | VARCHAR | `%U` or `%r` | ✓ | ✓ | Request URL path (without query string) |
+| `query_string` | VARCHAR | `%q` or `%r` | ✓ | ✓ | Query string (including leading ?) |
+| `protocol` | VARCHAR | `%H` or `%r` | ✓ | ✓ | HTTP protocol version |
 | `status` | INTEGER | `%s` or `%>s` | ✓ | ✓ | HTTP status code |
 | `status_original` | INTEGER | `%s` ( + `%>s` ) | ✓ | ✓ | Original status (when `%s` and `%>s` both present) |
 | `bytes` | BIGINT | `%b` or `%B` | ✓ | ✓ | Response size in bytes |
@@ -41,8 +42,7 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `server_name` | VARCHAR | `%v` or `%V` | ✓ | ✓ | Server name |
 | `server_name_used` | VARCHAR | `%v` ( + `%V` ) | ✓ | ✓ | Server name used (when `%v` and `%V` both present) |
 | `server_port` | INTEGER | `%p` | ✓ | ✓ | Canonical server port |
-| `time_us` | BIGINT | `%D` | ✓ | ✓ | Request duration in microseconds |
-| `time_sec` | BIGINT | `%T` | ✓ | ✓ | Request duration in seconds |
+| `duration` | INTERVAL | `%D`, `%T`, or `%{UNIT}T` | ✓ | ✓ | Request duration (highest precision kept when multiple present) |
 | `process_id` | INTEGER | `%P` | ✓ | ✓ | Server process ID |
 | `{header_name}` | VARCHAR | `%{Header}i` or `%{Header}o` | ✓ | ✓ | Request or response header |
 | `{header_name}_in` | VARCHAR | `%{Header}i` ( + `%{Header}o` ) | ✓ | ✓ | Request header (when both present) |
@@ -57,7 +57,8 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `raw_line` | VARCHAR | (auto) | ✗ | ✓ | Original log line (only for parse errors) |
 
 **Notes:**
-- When `%r` is used, it is parsed into `method`, `path`, and `protocol` columns
+- When `%r` is used, it is parsed into `method`, `path`, `query_string`, and `protocol` columns
+- When `%r` is used with individual directives (`%m`, `%U`, `%q`, `%H`), the individual directive takes priority and no duplicate column is created
 - Header names are converted to lowercase with hyphens replaced by underscores (e.g., `User-Agent` → `user_agent`)
 - Same directive twice produces `column`, `column_2`
 
@@ -70,10 +71,10 @@ Apache's standard "Common Log Format":
 LogFormat "%h %l %u %t \"%r\" %>s %b" common
 ```
 
-**Columns (raw=false):** 10 columns
-- `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `protocol`, `status`, `bytes`, `filename`
+**Columns (raw=false):** 11 columns
+- `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `filename`
 
-**Columns (raw=true):** 13 columns (adds `timestamp_raw`, `parse_error`, `raw_line`)
+**Columns (raw=true):** 14 columns (adds `timestamp_raw`, `parse_error`, `raw_line`)
 
 ### Combined Format
 
@@ -82,10 +83,10 @@ Apache's "Combined Log Format":
 LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined
 ```
 
-**Columns (raw=false):** 12 columns
+**Columns (raw=false):** 13 columns
 - All Common format columns plus `referer`, `user_agent`
 
-**Columns (raw=true):** 15 columns (adds `timestamp_raw`, `parse_error`, `raw_line`)
+**Columns (raw=true):** 16 columns (adds `timestamp_raw`, `parse_error`, `raw_line`)
 
 ### Custom Formats
 
@@ -96,7 +97,7 @@ SELECT * FROM read_httpd_log(
     'access.log',
     format_str='%h %t \"%r\" %>s %b %D'
 );
--- Returns: client_ip, timestamp, method, path, protocol, status, bytes, time_us, filename
+-- Returns: client_ip, timestamp, method, path, query_string, protocol, status, bytes, duration, filename
 ```
 
 ## See Also

@@ -55,10 +55,17 @@ struct FormatField {
 	string modifier;    // Optional modifier (e.g., "Referer" in "%{Referer}i")
 	bool should_skip;   // Whether this field should be skipped (used for %b/%B merging)
 
+	// %r sub-column skip flags: when individual directives (%m, %U, %q, %H) override %r
+	bool skip_method;       // Skip method column from %r (when %m is present)
+	bool skip_path;         // Skip path column from %r (when %U is present)
+	bool skip_query_string; // Skip query_string column from %r (when %q is present)
+	bool skip_protocol;     // Skip protocol column from %r (when %H is present)
+
 	FormatField(string directive_p, string column_name_p, LogicalType type_p, bool is_quoted_p = false,
 	            string modifier_p = "", bool should_skip_p = false)
 	    : directive(std::move(directive_p)), column_name(std::move(column_name_p)), type(std::move(type_p)),
-	      is_quoted(is_quoted_p), modifier(std::move(modifier_p)), should_skip(should_skip_p) {
+	      is_quoted(is_quoted_p), modifier(std::move(modifier_p)), should_skip(should_skip_p),
+	      skip_method(false), skip_path(false), skip_query_string(false), skip_protocol(false) {
 	}
 };
 
@@ -120,8 +127,9 @@ public:
 	// Helper to parse timestamp from Apache log format
 	static bool ParseTimestamp(const string &timestamp_str, timestamp_t &result);
 
-	// Helper to parse request line into method, path, protocol
-	static bool ParseRequest(const string &request, string &method, string &path, string &protocol);
+	// Helper to parse request line into method, path, query_string, protocol
+	static bool ParseRequest(const string &request, string &method, string &path, string &query_string,
+	                         string &protocol);
 
 private:
 	// Unified directive definitions - combines column name, type, and collision rules

@@ -2,6 +2,7 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/types/timestamp.hpp"
+#include "duckdb/common/types/interval.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/main/client_context.hpp"
 #include <chrono>
@@ -237,16 +238,27 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						col_idx++;
 					}
 				} else if (field.directive == "%r") {
-					// method, path, protocol columns
-					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-					    StringVector::AddString(output.data[col_idx], "");
-					col_idx++;
-					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-					    StringVector::AddString(output.data[col_idx], "");
-					col_idx++;
-					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-					    StringVector::AddString(output.data[col_idx], "");
-					col_idx++;
+					// method, path, query_string, protocol columns (respecting skip flags)
+					if (!field.skip_method) {
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], "");
+						col_idx++;
+					}
+					if (!field.skip_path) {
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], "");
+						col_idx++;
+					}
+					if (!field.skip_query_string) {
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], "");
+						col_idx++;
+					}
+					if (!field.skip_protocol) {
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], "");
+						col_idx++;
+					}
 				} else {
 					// Regular field
 					if (field.type.id() == LogicalTypeId::VARCHAR) {
@@ -278,28 +290,51 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						col_idx++;
 					}
 				} else if (field.directive == "%r") {
-					// Parse request line into method, path, protocol
-					string method, path, protocol;
-					if (HttpdLogFormatParser::ParseRequest(value, method, path, protocol)) {
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-						    StringVector::AddString(output.data[col_idx], method);
-						col_idx++;
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-						    StringVector::AddString(output.data[col_idx], path);
-						col_idx++;
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-						    StringVector::AddString(output.data[col_idx], protocol);
-						col_idx++;
+					// Parse request line into method, path, query_string, protocol
+					// Skip sub-columns that are overridden by individual directives
+					string method, path, query_string, protocol;
+					if (HttpdLogFormatParser::ParseRequest(value, method, path, query_string, protocol)) {
+						if (!field.skip_method) {
+							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+							    StringVector::AddString(output.data[col_idx], method);
+							col_idx++;
+						}
+						if (!field.skip_path) {
+							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+							    StringVector::AddString(output.data[col_idx], path);
+							col_idx++;
+						}
+						if (!field.skip_query_string) {
+							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+							    StringVector::AddString(output.data[col_idx], query_string);
+							col_idx++;
+						}
+						if (!field.skip_protocol) {
+							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+							    StringVector::AddString(output.data[col_idx], protocol);
+							col_idx++;
+						}
 					} else {
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-						    StringVector::AddString(output.data[col_idx], "");
-						col_idx++;
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-						    StringVector::AddString(output.data[col_idx], "");
-						col_idx++;
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-						    StringVector::AddString(output.data[col_idx], "");
-						col_idx++;
+						if (!field.skip_method) {
+							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+							    StringVector::AddString(output.data[col_idx], "");
+							col_idx++;
+						}
+						if (!field.skip_path) {
+							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+							    StringVector::AddString(output.data[col_idx], "");
+							col_idx++;
+						}
+						if (!field.skip_query_string) {
+							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+							    StringVector::AddString(output.data[col_idx], "");
+							col_idx++;
+						}
+						if (!field.skip_protocol) {
+							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+							    StringVector::AddString(output.data[col_idx], "");
+							col_idx++;
+						}
 					}
 				} else {
 					// Regular field - convert based on type
@@ -326,6 +361,38 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 							} else {
 								int64_t int_val = std::stoll(value);
 								FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = int_val;
+							}
+						} catch (...) {
+							FlatVector::SetNull(output.data[col_idx], output_idx, true);
+						}
+					} else if (field.type.id() == LogicalTypeId::INTERVAL) {
+						try {
+							// Handle "-" as 0 for duration fields
+							if (value == "-") {
+								FlatVector::GetData<interval_t>(output.data[col_idx])[output_idx] = {0, 0, 0};
+							} else {
+								int64_t int_val = std::stoll(value);
+								// Convert to microseconds based on directive/modifier:
+								// %D = microseconds (no conversion needed)
+								// %T = seconds
+								// %{us}T = microseconds
+								// %{ms}T = milliseconds
+								// %{s}T = seconds
+								if (field.directive == "%T") {
+									if (field.modifier == "ms") {
+										// Milliseconds to microseconds
+										int_val *= Interval::MICROS_PER_MSEC;
+									} else if (field.modifier == "us") {
+										// Already in microseconds, no conversion
+									} else {
+										// %T or %{s}T: seconds to microseconds
+										int_val *= Interval::MICROS_PER_SEC;
+									}
+								}
+								// %D is already in microseconds
+								// Convert microseconds to interval
+								FlatVector::GetData<interval_t>(output.data[col_idx])[output_idx] =
+								    Interval::FromMicro(int_val);
 							}
 						} catch (...) {
 							FlatVector::SetNull(output.data[col_idx], output_idx, true);
