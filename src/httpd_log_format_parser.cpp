@@ -14,6 +14,8 @@ namespace duckdb {
 const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitions = {
     // Basic directives (no collision rules needed)
     {"%h", "client_ip", LogicalTypeId::VARCHAR},
+    {"%a", "remote_ip", LogicalTypeId::VARCHAR}, // Client IP (mod_remoteip aware)
+    {"%A", "local_ip", LogicalTypeId::VARCHAR},  // Server local IP
     {"%l", "ident", LogicalTypeId::VARCHAR},
     {"%u", "auth_user", LogicalTypeId::VARCHAR},
     {"%t", "timestamp", LogicalTypeId::TIMESTAMP},
@@ -27,16 +29,16 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%T", "time_sec", LogicalTypeId::BIGINT},
 
     // Status code directives (collision pair)
-    {"%>s", "status", LogicalTypeId::INTEGER, "", 0},        // Final status gets base name
+    {"%>s", "status", LogicalTypeId::INTEGER, "", 0},         // Final status gets base name
     {"%s", "status", LogicalTypeId::INTEGER, "_original", 1}, // Original status gets suffix
 
     // Server name directives (collision pair)
-    {"%v", "server_name", LogicalTypeId::VARCHAR, "", 0},     // Canonical name gets base name
+    {"%v", "server_name", LogicalTypeId::VARCHAR, "", 0},      // Canonical name gets base name
     {"%V", "server_name", LogicalTypeId::VARCHAR, "_used", 1}, // Used name gets suffix
 
     // Bytes directives (collision pair)
-    {"%B", "bytes", LogicalTypeId::BIGINT, "", 0},      // Numeric bytes gets base name
-    {"%b", "bytes", LogicalTypeId::BIGINT, "_clf", 1},  // CLF format gets suffix
+    {"%B", "bytes", LogicalTypeId::BIGINT, "", 0},     // Numeric bytes gets base name
+    {"%b", "bytes", LogicalTypeId::BIGINT, "_clf", 1}, // CLF format gets suffix
 
     // Header directives (dynamic column name, collision with each other)
     {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers
@@ -46,9 +48,9 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
 // Typed header rules - maps header names to specific types with direction constraints
 // Format: header_name (lowercase), type, applies_to_request (%i), applies_to_response (%o)
 const std::vector<TypedHeaderRule> HttpdLogFormatParser::typed_header_rules = {
-    {"content-length", LogicalTypeId::BIGINT, true, true},   // Both request and response
-    {"age", LogicalTypeId::INTEGER, false, true},            // Response only
-    {"max-forwards", LogicalTypeId::INTEGER, true, false},   // Request only
+    {"content-length", LogicalTypeId::BIGINT, true, true}, // Both request and response
+    {"age", LogicalTypeId::INTEGER, false, true},          // Response only
+    {"max-forwards", LogicalTypeId::INTEGER, true, false}, // Request only
 };
 
 // Lookup caches for O(1) access
@@ -111,6 +113,16 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 
 			return col_name;
 		}
+	}
+
+	// Handle %{c}a - peer IP address of the connection
+	if (directive == "%a" && modifier == "c") {
+		return "peer_ip";
+	}
+
+	// Handle %{c}h - underlying TCP connection hostname (not modified by mod_remoteip)
+	if (directive == "%h" && modifier == "c") {
+		return "peer_host";
 	}
 
 	// Look up directive definition

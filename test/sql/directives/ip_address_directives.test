@@ -1,0 +1,112 @@
+# name: test/sql/directives/ip_address_directives.test
+# description: Tests for IP address directives (%a, %{c}a, %A)
+# group: [directives]
+
+require httpd_log
+
+# Test 1: %a directive - remote IP (mod_remoteip aware)
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/ip_address.log',
+        format_str='%a %{c}a %A %t "%r" %>s %b'
+    )
+)
+WHERE column_name = 'remote_ip';
+----
+1
+
+# Test 2: %{c}a directive - peer IP address
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/ip_address.log',
+        format_str='%a %{c}a %A %t "%r" %>s %b'
+    )
+)
+WHERE column_name = 'peer_ip';
+----
+1
+
+# Test 3: %A directive - local IP address
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/ip_address.log',
+        format_str='%a %{c}a %A %t "%r" %>s %b'
+    )
+)
+WHERE column_name = 'local_ip';
+----
+1
+
+# Test 4: All three IP columns are present
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/ip_address.log',
+        format_str='%a %{c}a %A %t "%r" %>s %b'
+    )
+)
+WHERE column_name IN ('remote_ip', 'peer_ip', 'local_ip');
+----
+3
+
+# Test 5: Actual data parsing - verify IP values
+query III
+SELECT remote_ip, peer_ip, local_ip
+FROM read_httpd_log(
+    'test/data/directives/ip_address.log',
+    format_str='%a %{c}a %A %t "%r" %>s %b'
+)
+LIMIT 1;
+----
+192.168.1.100	10.0.0.1	172.16.0.1
+
+# Test 6: %a alone uses remote_ip column name
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/peer_ip.log',
+        format_str='%a %{c}a %t "%r" %>s %b'
+    )
+)
+WHERE column_name = 'remote_ip';
+----
+1
+
+# Test 7: All IP types are VARCHAR
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/ip_address.log',
+        format_str='%a %{c}a %A %t "%r" %>s %b'
+    )
+)
+WHERE column_name IN ('remote_ip', 'peer_ip', 'local_ip') AND column_type = 'VARCHAR';
+----
+3
+
+# Test 8: %{c}h directive - peer hostname (underlying TCP connection)
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/hostname.log',
+        format_str='%h %{c}h %t "%r" %>s %b'
+    )
+)
+WHERE column_name = 'peer_host';
+----
+1
+
+# Test 9: %h and %{c}h together - both columns present
+query II
+SELECT client_ip, peer_host
+FROM read_httpd_log(
+    'test/data/directives/hostname.log',
+    format_str='%h %{c}h %t "%r" %>s %b'
+)
+LIMIT 1;
+----
+192.168.1.1	10.0.0.1
+

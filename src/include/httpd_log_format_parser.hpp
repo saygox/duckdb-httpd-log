@@ -15,8 +15,8 @@ struct DirectiveDefinition {
 	string collision_suffix; // Suffix when collision occurs (e.g., "_in", "_out")
 	int collision_priority;  // Resolution priority (0 = highest, keeps base name)
 
-	DirectiveDefinition(string directive_p, string column_name_p, LogicalTypeId type_p,
-	                    string collision_suffix_p = "", int collision_priority_p = 0)
+	DirectiveDefinition(string directive_p, string column_name_p, LogicalTypeId type_p, string collision_suffix_p = "",
+	                    int collision_priority_p = 0)
 	    : directive(std::move(directive_p)), column_name(std::move(column_name_p)), type(type_p),
 	      collision_suffix(std::move(collision_suffix_p)), collision_priority(collision_priority_p) {
 	}
