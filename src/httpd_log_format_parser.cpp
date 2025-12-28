@@ -146,6 +146,9 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 		}
 	}
 
+	// Resolve duplicate directive conflicts (e.g., %s/%>s, %v/%V, %b/%B)
+	ResolveDuplicateDirectives(result);
+
 	// Generate regex pattern from the parsed fields
 	result.regex_pattern = GenerateRegexPattern(result);
 
@@ -210,12 +213,25 @@ string HttpdLogFormatParser::GenerateRegexPattern(const ParsedFormat &parsed_for
 			}
 
 			// Add regex pattern based on field type
+			// Use non-capturing groups (?:...) for should_skip fields
+			string regex_expr;
 			if (field.is_quoted) {
-				pattern << "([^\"]*)"; // Match anything except quotes
+				regex_expr = "[^\"]*"; // Match anything except quotes
 			} else if (field.directive == "%t") {
-				pattern << "\\[([^\\]]+)\\]"; // Timestamp in brackets
+				// Timestamp is special: always capture for timestamp_raw
+				pattern << "\\[([^\\]]+)\\]";
+				field_idx++;
+				continue;
 			} else {
-				pattern << "(\\S+)"; // Match non-whitespace
+				regex_expr = "\\S+"; // Match non-whitespace
+			}
+
+			if (!field.should_skip) {
+				// Normal: capturing group
+				pattern << "(" << regex_expr << ")";
+			} else {
+				// Skip: non-capturing group (matches but doesn't capture)
+				pattern << "(?:" << regex_expr << ")";
 			}
 
 			field_idx++;
@@ -254,6 +270,11 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 
 	// Add columns from the parsed format
 	for (const auto &field : parsed_format.fields) {
+		// Skip fields marked for skipping (e.g., %b when %B is present)
+		if (field.should_skip) {
+			continue;
+		}
+
 		// Special handling for %t (timestamp) - add timestamp and optionally timestamp_raw
 		if (field.directive == "%t") {
 			names.push_back("timestamp");
@@ -393,6 +414,80 @@ vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const Pars
 	}
 
 	return result;
+}
+
+void HttpdLogFormatParser::ResolveDuplicateDirectives(ParsedFormat &parsed_format) {
+	// Step 1: Count directive occurrences
+	bool has_s = false, has_gt_s = false;
+	bool has_v = false, has_V = false;
+	bool has_b = false, has_B = false;
+
+	for (const auto &field : parsed_format.fields) {
+		if (field.directive == "%s") {
+			has_s = true;
+		}
+		if (field.directive == "%>s") {
+			has_gt_s = true;
+		}
+		if (field.directive == "%v") {
+			has_v = true;
+		}
+		if (field.directive == "%V") {
+			has_V = true;
+		}
+		if (field.directive == "%b") {
+			has_b = true;
+		}
+		if (field.directive == "%B") {
+			has_B = true;
+		}
+	}
+
+	// Step 2: Dynamically resolve column names
+	for (auto &field : parsed_format.fields) {
+		// === Status code resolution ===
+		if (field.directive == "%>s") {
+			field.column_name = "status"; // Always main
+		} else if (field.directive == "%s") {
+			if (has_gt_s) {
+				// Both present: %s uses alternative name
+				field.column_name = "status_original";
+			} else {
+				// %s only: use standard name
+				field.column_name = "status";
+			}
+		}
+
+		// === Server name resolution ===
+		else if (field.directive == "%v") {
+			field.column_name = "server_name"; // Always main
+		} else if (field.directive == "%V") {
+			if (has_v) {
+				// Both present: %V uses alternative name
+				field.column_name = "server_name_used";
+			} else {
+				// %V only: use standard name
+				field.column_name = "server_name";
+			}
+		}
+
+		// === Bytes resolution (merge mode) ===
+		else if (field.directive == "%B") {
+			field.column_name = "bytes"; // %B preferred
+		} else if (field.directive == "%b") {
+			if (has_B) {
+				// Both present: skip %b (merge into %B)
+				field.should_skip = true;
+			} else {
+				// %b only: use standard name
+				field.column_name = "bytes";
+			}
+		}
+	}
+
+	// Step 3: Fields are NOT removed (maintains sync with regex generation)
+	// should_skip flag is referenced in GenerateRegexPattern(), GenerateSchema(),
+	// and table function
 }
 
 } // namespace duckdb

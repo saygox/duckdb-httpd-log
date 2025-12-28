@@ -14,11 +14,12 @@ struct FormatField {
 	LogicalType type;   // The data type for this field
 	bool is_quoted;     // Whether this field appears in quotes in the log format
 	string modifier;    // Optional modifier (e.g., "Referer" in "%{Referer}i")
+	bool should_skip;   // Whether this field should be skipped (used for %b/%B merging)
 
 	FormatField(string directive_p, string column_name_p, LogicalType type_p, bool is_quoted_p = false,
-	            string modifier_p = "")
+	            string modifier_p = "", bool should_skip_p = false)
 	    : directive(std::move(directive_p)), column_name(std::move(column_name_p)), type(std::move(type_p)),
-	      is_quoted(is_quoted_p), modifier(std::move(modifier_p)) {
+	      is_quoted(is_quoted_p), modifier(std::move(modifier_p)), should_skip(should_skip_p) {
 	}
 };
 
@@ -89,6 +90,10 @@ private:
 
 	// Map of directives to their data types
 	static const std::unordered_map<string, LogicalTypeId> directive_to_type;
+
+	// Resolve duplicate directive conflicts by dynamically adjusting column names
+	// and setting should_skip flags for merged directives (%b/%B)
+	static void ResolveDuplicateDirectives(ParsedFormat &parsed_format);
 };
 
 } // namespace duckdb

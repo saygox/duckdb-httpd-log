@@ -219,6 +219,11 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 		idx_t value_idx = 0;
 
 		for (const auto &field : bind_data.parsed_format.fields) {
+			// Skip fields marked for skipping (e.g., %b when %B is present)
+			if (field.should_skip) {
+				continue;
+			}
+
 			if (parse_error) {
 				// Set all columns to NULL or empty on parse error
 				if (field.directive == "%t") {
