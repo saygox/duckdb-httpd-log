@@ -81,50 +81,29 @@ ORDER BY timestamp DESC;
 
 ## Output Schema
 
-### Common Format (13 columns)
-- `client_ip` (VARCHAR) - Client IP address
-- `ident` (VARCHAR) - Remote logname
-- `auth_user` (VARCHAR) - Authenticated user
-- `timestamp` (TIMESTAMP) - Request timestamp (UTC)
-- `timestamp_raw` (VARCHAR) - Raw timestamp string
-- `method` (VARCHAR) - HTTP method (GET, POST, etc.)
-- `path` (VARCHAR) - Request path
-- `protocol` (VARCHAR) - HTTP protocol version
-- `status` (INTEGER) - HTTP status code
-- `bytes` (BIGINT) - Response size in bytes
-- `filename` (VARCHAR) - Source log file path
-- `parse_error` (BOOLEAN) - Whether parsing failed
-- `raw_line` (VARCHAR) - Raw log line (only if parse_error=true)
+The `read_httpd_log` function returns a table with columns determined by the `format_type` and `raw` parameters:
 
-### Combined Format (15 columns)
-All common format columns, plus:
-- `referer` (VARCHAR) - HTTP Referer header
-- `user_agent` (VARCHAR) - User-Agent string
+- **Common format**: 10 columns (default) or 13 columns with `raw=true`
+- **Combined format**: 12 columns (default) or 15 columns with `raw=true`
+- **Custom formats**: Schema dynamically generated based on `format_str` directives
 
-### Custom Formats
-Schema is dynamically generated based on the `format_str` directives.
+The `raw` parameter controls visibility of diagnostic columns (`timestamp_raw`, `parse_error`, `raw_line`):
+- **`raw=false`** (default): Diagnostic columns are hidden, parse errors are excluded from results
+- **`raw=true`**: Diagnostic columns are included, all rows (including parse errors) are returned
 
-## Supported LogFormat Directives
+**📖 See [Output Schema Documentation](docs/schema.md) for complete column reference, detailed information, and usage examples.**
 
-| Directive | Description | Column Name | Type |
-|-----------|-------------|-------------|------|
-| `%h` | Client IP address | `client_ip` | VARCHAR |
-| `%l` | Remote logname (identd) | `ident` | VARCHAR |
-| `%u` | Remote user (auth) | `auth_user` | VARCHAR |
-| `%t` | Timestamp | `timestamp`, `timestamp_raw` | TIMESTAMP, VARCHAR |
-| `%r` | Request line | `method`, `path`, `protocol` | VARCHAR |
-| `%>s`, `%s` | Status code | `status` | INTEGER |
-| `%b`, `%B` | Response bytes | `bytes` | BIGINT |
-| `%m` | Request method | `method` | VARCHAR |
-| `%U` | URL path | `path` | VARCHAR |
-| `%H` | Request protocol | `protocol` | VARCHAR |
-| `%{Header}i` | Request header | lowercase header name | VARCHAR |
-| `%{Header}o` | Response header | lowercase header name | VARCHAR |
-| `%v`, `%V` | Server name | `server_name` | VARCHAR |
-| `%p` | Server port | `server_port` | INTEGER |
-| `%D` | Request duration (μs) | `time_us` | BIGINT |
-| `%T` | Request duration (s) | `time_sec` | BIGINT |
-| `%P` | Process ID | `process_id` | INTEGER |
+### Quick Example
+
+```sql
+-- Default: 10 columns, parse errors excluded
+SELECT client_ip, method, path, status, bytes
+FROM read_httpd_log('access.log');
+
+-- With diagnostics: 13 columns, includes parse errors with diagnostic info
+SELECT client_ip, method, status, parse_error, raw_line
+FROM read_httpd_log('access.log', raw=true)
+WHERE parse_error = true;
 
 ## Building
 
