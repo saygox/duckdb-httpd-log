@@ -40,6 +40,28 @@ const std::unordered_map<string, LogicalTypeId> HttpdLogFormatParser::directive_
     {"%P", LogicalTypeId::INTEGER},   {"%D", LogicalTypeId::BIGINT},  {"%T", LogicalTypeId::BIGINT},
 };
 
+// Collision resolution rules: directive -> (suffix, priority)
+// Priority 0 = preferred for base name when alone, higher = gets suffix when colliding
+// Extensible: add new rules here for future directive types (e.g., %e for env vars)
+const std::vector<CollisionRule> HttpdLogFormatParser::collision_rules = {
+    // Header directives: request (%i) vs response (%o)
+    // When both %{X}i and %{X}o are present, they get _in and _out suffixes
+    {"%i", "_in", 1},
+    {"%o", "_out", 1},
+
+    // Status code directives
+    {"%>s", "", 0}, // Final status gets base name
+    {"%s", "_original", 1},
+
+    // Server name directives
+    {"%v", "", 0}, // Canonical server name gets base name
+    {"%V", "_used", 1},
+
+    // Bytes directives
+    {"%B", "", 0},    // Numeric bytes gets base name
+    {"%b", "_clf", 1} // CLF format gets suffix
+};
+
 string HttpdLogFormatParser::GetColumnName(const string &directive, const string &modifier) {
 	// Handle special case for %{...}i and %{...}o (request/response headers)
 	if (directive == "%i" || directive == "%o") {
@@ -168,8 +190,9 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 		}
 	}
 
-	// Resolve duplicate directive conflicts (e.g., %s/%>s, %v/%V, %b/%B)
-	ResolveDuplicateDirectives(result);
+	// Resolve column name collisions using rule-based approach
+	// Handles %s/%>s, %v/%V, %b/%B, and header collisions like %{X}i + %{X}o
+	ResolveColumnNameCollisions(result);
 
 	// Generate regex pattern from the parsed fields
 	result.regex_pattern = GenerateRegexPattern(result);
@@ -438,88 +461,120 @@ vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const Pars
 	return result;
 }
 
-void HttpdLogFormatParser::ResolveDuplicateDirectives(ParsedFormat &parsed_format) {
-	// Step 1: Count directive occurrences
-	bool has_s = false, has_gt_s = false;
-	bool has_v = false, has_V = false;
-	bool has_b = false, has_B = false;
+void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_format) {
+	// Step 1: Build collision map - group field indices by column name
+	std::unordered_map<string, vector<idx_t>> collision_map;
+	for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
+		collision_map[parsed_format.fields[i].column_name].push_back(i);
+	}
 
-	for (const auto &field : parsed_format.fields) {
-		if (field.directive == "%s") {
-			has_s = true;
+	// Step 2: Process each group with potential collisions
+	for (auto &entry : collision_map) {
+		const string &column_name = entry.first;
+		vector<idx_t> &field_indices = entry.second;
+
+		if (field_indices.size() <= 1) {
+			continue; // No collision for this column name
 		}
-		if (field.directive == "%>s") {
-			has_gt_s = true;
+
+		// Separate fields by directive type to determine collision type
+		std::unordered_map<string, vector<idx_t>> by_directive;
+		for (idx_t idx : field_indices) {
+			by_directive[parsed_format.fields[idx].directive].push_back(idx);
 		}
-		if (field.directive == "%v") {
-			has_v = true;
+
+		// Case A: All same directive (duplicates of same field, not a collision)
+		// Example: %{User-Agent}i appears twice
+		if (by_directive.size() == 1) {
+			// Number them: first keeps name, rest get _2, _3, etc.
+			int counter = 2;
+			for (size_t i = 1; i < field_indices.size(); i++) {
+				auto &field = parsed_format.fields[field_indices[i]];
+				field.column_name = column_name + "_" + std::to_string(counter++);
+			}
+			continue;
 		}
-		if (field.directive == "%V") {
-			has_V = true;
+
+		// Case B: Different directives with same column name - apply collision rules
+		// Example: %{Content-Length}i and %{Content-Length}o both produce "content_length"
+
+		// Find the applicable rule for each directive and sort by priority
+		struct FieldWithRule {
+			idx_t field_idx;
+			const CollisionRule *rule;
+			int priority;
+		};
+		vector<FieldWithRule> fields_with_rules;
+
+		for (idx_t idx : field_indices) {
+			const auto &field = parsed_format.fields[idx];
+			const CollisionRule *rule = nullptr;
+			int priority = 999; // Default: low priority (no rule found)
+
+			// Find matching rule for this directive
+			for (const auto &r : collision_rules) {
+				if (r.directive == field.directive) {
+					rule = &r;
+					priority = r.priority;
+					break;
+				}
+			}
+
+			fields_with_rules.push_back({idx, rule, priority});
 		}
-		if (field.directive == "%b") {
-			has_b = true;
+
+		// Sort by priority (lowest first = highest priority)
+		std::sort(fields_with_rules.begin(), fields_with_rules.end(),
+		          [](const FieldWithRule &a, const FieldWithRule &b) { return a.priority < b.priority; });
+
+		// Check if this is a header collision (only %i and/or %o involved)
+		bool has_i = by_directive.count("%i") > 0;
+		bool has_o = by_directive.count("%o") > 0;
+		bool is_pure_header_collision = by_directive.size() == 2 && has_i && has_o;
+
+		// For header collisions (%{X}i + %{X}o), both get suffixes
+		// For other collisions, use priority-based resolution
+		if (is_pure_header_collision) {
+			// Both header types present - apply suffixes to both
+			for (const auto &fwr : fields_with_rules) {
+				auto &field = parsed_format.fields[fwr.field_idx];
+				if (fwr.rule) {
+					field.column_name = column_name + fwr.rule->suffix;
+				}
+			}
+		} else {
+			// Mixed collision or standard directive pairs
+			// Priority 0 gets base name (or its own suffix if defined)
+			// Others get their suffixes
+			for (const auto &fwr : fields_with_rules) {
+				auto &field = parsed_format.fields[fwr.field_idx];
+				if (fwr.rule) {
+					if (fwr.rule->suffix.empty()) {
+						// Priority 0 with empty suffix keeps base name
+						field.column_name = column_name;
+					} else {
+						field.column_name = column_name + fwr.rule->suffix;
+					}
+				}
+			}
 		}
-		if (field.directive == "%B") {
-			has_B = true;
+
+		// Handle duplicates within each directive type after collision resolution
+		// Example: %{X}i + %{X}i + %{X}o → x_in, x_in_2, x_out
+		std::unordered_map<string, int> name_counts;
+		for (const auto &fwr : fields_with_rules) {
+			auto &field = parsed_format.fields[fwr.field_idx];
+			string current_name = field.column_name;
+			int count = ++name_counts[current_name];
+			if (count > 1) {
+				field.column_name = current_name + "_" + std::to_string(count);
+			}
 		}
 	}
 
-	// Step 2: Dynamically resolve column names
-	for (auto &field : parsed_format.fields) {
-		// === Status code resolution ===
-		if (field.directive == "%>s") {
-			field.column_name = "status"; // Always main
-		} else if (field.directive == "%s") {
-			if (has_gt_s) {
-				// Both present: %s uses alternative name
-				field.column_name = "status_original";
-			} else {
-				// %s only: use standard name
-				field.column_name = "status";
-			}
-		}
-
-		// === Server name resolution ===
-		else if (field.directive == "%v") {
-			field.column_name = "server_name"; // Always main
-		} else if (field.directive == "%V") {
-			if (has_v) {
-				// Both present: %V uses alternative name
-				field.column_name = "server_name_used";
-			} else {
-				// %V only: use standard name
-				field.column_name = "server_name";
-			}
-		}
-
-		// === Bytes resolution (distinct columns mode) ===
-		// %b and %B have different semantics:
-		// - %b: CLF format (0 bytes → "-")
-		// - %B: Always numeric (0 bytes → "0")
-		// Both should be displayed if present
-		else if (field.directive == "%B") {
-			if (has_b) {
-				// Both present: %B → "bytes", %b → "bytes_clf"
-				field.column_name = "bytes";
-			} else {
-				// %B only: use standard name "bytes"
-				field.column_name = "bytes";
-			}
-		} else if (field.directive == "%b") {
-			if (has_B) {
-				// Both present: %b → "bytes_clf", %B → "bytes"
-				field.column_name = "bytes_clf";
-			} else {
-				// %b only: use standard name "bytes"
-				field.column_name = "bytes";
-			}
-		}
-	}
-
-	// Step 3: Fields are NOT removed (maintains sync with regex generation)
-	// should_skip flag is referenced in GenerateRegexPattern(), GenerateSchema(),
-	// and table function
+	// Note: Fields are NOT removed (maintains sync with regex generation)
+	// should_skip flag is used in GenerateRegexPattern(), GenerateSchema(),
+	// and table function for fields that should be captured but not output
 }
 
 } // namespace duckdb

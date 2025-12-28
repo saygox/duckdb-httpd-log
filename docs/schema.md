@@ -387,6 +387,59 @@ WHERE max_forwards < 10;  -- Low proxy hop limit
 
 **Note**: All other headers (e.g., `User-Agent`, `Referer`) remain VARCHAR type.
 
+### Column Name Collision Resolution
+
+When multiple directives produce the same column name, the extension automatically resolves conflicts:
+
+#### Header Collisions (Request vs Response)
+
+When both `%{Header}i` and `%{Header}o` appear for the same header name:
+
+| Format | Column Names |
+|--------|-------------|
+| `%{Content-Length}i` only | `content_length` |
+| `%{Content-Length}o` only | `content_length` |
+| Both `%{Content-Length}i` and `%{Content-Length}o` | `content_length_in`, `content_length_out` |
+
+#### Duplicate Same Directive
+
+When the same directive appears multiple times:
+
+| Format | Column Names |
+|--------|-------------|
+| `%{User-Agent}i` once | `user_agent` |
+| `%{User-Agent}i` twice | `user_agent`, `user_agent_2` |
+| `%{User-Agent}i` three times | `user_agent`, `user_agent_2`, `user_agent_3` |
+
+#### Mixed Collisions
+
+When both collision types occur:
+
+| Format | Column Names |
+|--------|-------------|
+| `%{X}i` + `%{X}o` + `%{X}i` | `x_in`, `x_out`, `x_in_2` |
+
+#### Standard Directive Collisions
+
+Existing rules for standard directives remain unchanged:
+
+| Directive Pair | Resolution |
+|---------------|------------|
+| `%s` + `%>s` | `status_original`, `status` |
+| `%v` + `%V` | `server_name`, `server_name_used` |
+| `%b` + `%B` | `bytes_clf`, `bytes` |
+
+**Example:**
+
+```sql
+-- Reading both request and response Content-Length
+SELECT content_length_in, content_length_out
+FROM read_httpd_log(
+    'access.log',
+    format_str='%h %t "%r" %>s %{Content-Length}i %{Content-Length}o'
+);
+```
+
 ### Custom Format Example
 
 ```sql

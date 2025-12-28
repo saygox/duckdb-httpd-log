@@ -23,6 +23,19 @@ struct FormatField {
 	}
 };
 
+// Rule for resolving column name collisions between directives
+// When multiple directives produce the same column name (e.g., %{Content-Length}i and %{Content-Length}o),
+// these rules determine how to disambiguate them with suffixes
+struct CollisionRule {
+	string directive; // The format directive this rule applies to (e.g., "%i", "%o")
+	string suffix;    // Suffix to add when collision occurs (e.g., "_in", "_out")
+	int priority;     // Resolution priority (0 = highest, may keep base name when alone)
+
+	CollisionRule(string directive_p, string suffix_p, int priority_p = 0)
+	    : directive(std::move(directive_p)), suffix(std::move(suffix_p)), priority(priority_p) {
+	}
+};
+
 // Parsed format string information
 struct ParsedFormat {
 	vector<FormatField> fields;                 // List of fields in the format
@@ -91,9 +104,13 @@ private:
 	// Map of directives to their data types
 	static const std::unordered_map<string, LogicalTypeId> directive_to_type;
 
-	// Resolve duplicate directive conflicts by dynamically adjusting column names
-	// and setting should_skip flags for merged directives (%b/%B)
-	static void ResolveDuplicateDirectives(ParsedFormat &parsed_format);
+	// Collision resolution rules for directives that may produce same column name
+	static const std::vector<CollisionRule> collision_rules;
+
+	// Resolve column name collisions using rule-based approach
+	// Handles both different directives producing same name (e.g., %{X}i + %{X}o)
+	// and duplicate same directives (e.g., %{X}i + %{X}i)
+	static void ResolveColumnNameCollisions(ParsedFormat &parsed_format);
 };
 
 } // namespace duckdb
