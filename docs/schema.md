@@ -302,12 +302,14 @@ The `%b` and `%B` directives have different semantics and are handled specially:
 
 | Column Name | Type | Directive | Behavior | Notes |
 |-------------|------|-----------|----------|-------|
-| `bytes` | BIGINT | `%b` (alone) | "-" → NULL | CLF format: dash for zero bytes |
+| `bytes` | BIGINT | `%b` (alone) | "-" → 0 | CLF format: dash converted to 0 |
 | `bytes` | BIGINT | `%B` (alone) | Always numeric | "0" for zero bytes (never "-") |
-| `bytes_clf` | BIGINT | `%b` (with `%B`) | "-" → NULL | CLF format when both present |
+| `bytes_clf` | BIGINT | `%b` (with `%B`) | "-" → 0 | CLF format when both present |
 | `bytes` | BIGINT | `%B` (with `%b`) | Always numeric | Standard format when both present |
 
 **When both `%b` and `%B` are present**, they create two separate columns (`bytes_clf` and `bytes`) to preserve the semantic difference.
+
+**NULL handling**: "-" is converted to 0 (not NULL) to make aggregations and filtering more reliable.
 
 ### Generic Header Directives
 
@@ -345,9 +347,9 @@ Specific HTTP headers are automatically typed as INTEGER or BIGINT instead of VA
 
 **Features:**
 - **Case-insensitive matching**: `Content-Length`, `content-length`, and `CONTENT-LENGTH` all work
-- **NULL handling**: Missing headers or "-" values → NULL
+- **NULL handling**: "-" values → 0 (not NULL) for reliable aggregations
 - **Invalid values**: Non-numeric values → NULL (no parse errors)
-- **Performance**: Enables numeric operations like filtering, aggregations, and sorting
+- **Performance**: Enables numeric operations like filtering, aggregations, and sorting without NULL checks
 
 **Examples:**
 

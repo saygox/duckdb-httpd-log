@@ -51,16 +51,16 @@ WHERE client_ip = '192.168.1.1';
 ----
 2326
 
-# Test 5: Content-Length handles "-" as NULL
+# Test 5: Content-Length handles "-" as 0
 query I
 SELECT COUNT(*)
 FROM read_httpd_log(
     'test/data/directives/typed_headers.log',
     format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Age}o'
 )
-WHERE content_length IS NULL;
+WHERE content_length = 0;
 ----
-1
+2
 
 # Test 6: Age parses numeric values correctly
 query I
@@ -146,19 +146,16 @@ WHERE client_ip = '192.168.1.1';
 ----
 1024	5	3600
 
-# Test 13: NULL handling for all three headers
+# Test 13: Dash ("-") values converted to 0 for all three headers
 query III
-SELECT
-    content_length IS NULL as cl_null,
-    max_forwards IS NULL as mf_null,
-    age IS NULL as age_null
+SELECT content_length, max_forwards, age
 FROM read_httpd_log(
     'test/data/directives/typed_headers_mixed.log',
     format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Max-Forwards}i %{Age}o'
 )
 WHERE client_ip = '192.168.1.2';
 ----
-1	1	1
+0	0	0
 
 # Test 14: Zero values are valid (not NULL)
 query III
@@ -171,7 +168,7 @@ WHERE client_ip = '192.168.1.3';
 ----
 0	10	0
 
-# Test 15: Invalid values become NULL (non-numeric Content-Length)
+# Test 15: Invalid values become NULL (non-numeric Content-Length), "-" becomes 0
 query I
 SELECT COUNT(*)
 FROM read_httpd_log(
@@ -180,7 +177,7 @@ FROM read_httpd_log(
 )
 WHERE content_length IS NULL;
 ----
-2
+1
 
 # Test 16: Large values are handled correctly (max BIGINT)
 query I
@@ -252,7 +249,7 @@ WHERE column_name = 'max_forwards' AND column_type = 'VARCHAR';
 ----
 1
 
-# Test 22: Aggregate functions work with typed headers
+# Test 22: Aggregate functions work with typed headers (including converted "-" as 0)
 query II
 SELECT
     AVG(content_length) as avg_size,
@@ -263,7 +260,7 @@ FROM read_httpd_log(
 )
 WHERE content_length IS NOT NULL;
 ----
-512	3600
+341.3333333333333	3600
 
 # Test 23: Filtering on typed headers
 query I

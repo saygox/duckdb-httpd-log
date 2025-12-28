@@ -308,16 +308,21 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						    StringVector::AddString(output.data[col_idx], value);
 					} else if (field.type.id() == LogicalTypeId::INTEGER) {
 						try {
-							int32_t int_val = std::stoi(value);
-							FlatVector::GetData<int32_t>(output.data[col_idx])[output_idx] = int_val;
+							// Handle "-" as 0 for numeric fields
+							if (value == "-") {
+								FlatVector::GetData<int32_t>(output.data[col_idx])[output_idx] = 0;
+							} else {
+								int32_t int_val = std::stoi(value);
+								FlatVector::GetData<int32_t>(output.data[col_idx])[output_idx] = int_val;
+							}
 						} catch (...) {
 							FlatVector::SetNull(output.data[col_idx], output_idx, true);
 						}
 					} else if (field.type.id() == LogicalTypeId::BIGINT) {
 						try {
-							// Handle "-" for %b directive (no bytes)
+							// Handle "-" as 0 for numeric fields
 							if (value == "-") {
-								FlatVector::SetNull(output.data[col_idx], output_idx, true);
+								FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = 0;
 							} else {
 								int64_t int_val = std::stoll(value);
 								FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = int_val;

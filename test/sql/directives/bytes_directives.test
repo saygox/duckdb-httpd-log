@@ -42,14 +42,14 @@ FROM (
 ----
 1	1
 
-# Test 4: Verify data parsing with %b only - "-" becomes NULL
+# Test 4: Verify data parsing with %b only - "-" becomes 0
 query I
 SELECT COUNT(*)
 FROM read_httpd_log(
     'test/data/directives/bytes_with_dash.log',
     format_str='%h %l %u %t "%r" %>s %b'
 )
-WHERE bytes IS NULL;
+WHERE bytes = 0;
 ----
 2
 
@@ -64,7 +64,7 @@ WHERE bytes = 0;
 ----
 2
 
-# Test 6: Both %b and %B - verify different behavior
+# Test 6: Both %b and %B - verify same behavior (both convert "-" to 0)
 query III
 SELECT bytes_clf, bytes, client_ip
 FROM read_httpd_log(
@@ -74,8 +74,8 @@ FROM read_httpd_log(
 ORDER BY client_ip;
 ----
 2326	2326	192.168.1.1
-NULL	0	192.168.1.2
-NULL	0	192.168.1.3
+0	0	192.168.1.2
+0	0	192.168.1.3
 
 # Test 7: Verify %b with non-zero value
 query I
