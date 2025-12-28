@@ -41,7 +41,9 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `bytes_clf` | BIGINT | `%b` ( + `%B` ) | ✓ | ✓ | CLF format bytes (when `%b` and `%B` both present) |
 | `server_name` | VARCHAR | `%v` or `%V` | ✓ | ✓ | Server name |
 | `server_name_used` | VARCHAR | `%v` ( + `%V` ) | ✓ | ✓ | Server name used (when `%v` and `%V` both present) |
-| `server_port` | INTEGER | `%p` | ✓ | ✓ | Canonical server port |
+| `server_port` | INTEGER | `%p` or `%{canonical}p` | ✓ | ✓ | Canonical server port (%p takes priority when both present) |
+| `local_port` | INTEGER | `%{local}p` | ✓ | ✓ | Server's actual port |
+| `remote_port` | INTEGER | `%{remote}p` | ✓ | ✓ | Client's actual port |
 | `duration` | INTERVAL | `%D`, `%T`, or `%{UNIT}T` | ✓ | ✓ | Request duration (highest precision kept when multiple present) |
 | `keepalive_count` | INTEGER | `%k` | ✓ | ✓ | Number of keepalive requests on this connection |
 | `connection_status` | VARCHAR | `%X` | ✓ | ✓ | Connection status: `aborted`, `keepalive`, or `close` |

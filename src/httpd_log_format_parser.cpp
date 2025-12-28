@@ -184,6 +184,17 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 		}
 	}
 
+	// Handle %{format}p - port variants
+	if (directive == "%p") {
+		if (modifier == "canonical" || modifier.empty()) {
+			return "server_port";
+		} else if (modifier == "local") {
+			return "local_port";
+		} else if (modifier == "remote") {
+			return "remote_port";
+		}
+	}
+
 	// Look up directive definition
 	const DirectiveDefinition *def = GetDirectiveDefinition(directive);
 	if (def && !def->column_name.empty()) {
@@ -234,6 +245,11 @@ LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const str
 		} else if (modifier == "hextid") {
 			return LogicalType::VARCHAR; // Hex format
 		}
+	}
+
+	// Handle %{format}p - port variants (all INTEGER)
+	if (directive == "%p" && (modifier == "canonical" || modifier == "local" || modifier == "remote")) {
+		return LogicalType::INTEGER;
 	}
 
 	// Look up directive definition
@@ -692,23 +708,59 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		// %P (no modifier) takes priority, %{pid}P gets skipped
 		if (column_name == "process_id") {
 			idx_t best_idx = field_indices[0];
-			bool found_bare_P = false;
+			bool found_bare = false;
 
 			// Find %P without modifier (preferred)
 			for (idx_t idx : field_indices) {
 				const auto &field = parsed_format.fields[idx];
 				if (field.directive == "%P" && field.modifier.empty()) {
 					best_idx = idx;
-					found_bare_P = true;
+					found_bare = true;
 					break;
 				}
 			}
 
 			// If no bare %P, use first %{pid}P
-			if (!found_bare_P) {
+			if (!found_bare) {
 				for (idx_t idx : field_indices) {
 					const auto &field = parsed_format.fields[idx];
 					if (field.directive == "%P" && field.modifier == "pid") {
+						best_idx = idx;
+						break;
+					}
+				}
+			}
+
+			// Mark all but the best as should_skip
+			for (idx_t idx : field_indices) {
+				if (idx != best_idx) {
+					parsed_format.fields[idx].should_skip = true;
+				}
+			}
+			continue;
+		}
+
+		// Special case: Server Port - %p and %{canonical}p are equivalent
+		// %p (no modifier) takes priority, %{canonical}p gets skipped
+		if (column_name == "server_port") {
+			idx_t best_idx = field_indices[0];
+			bool found_bare = false;
+
+			// Find %p without modifier (preferred)
+			for (idx_t idx : field_indices) {
+				const auto &field = parsed_format.fields[idx];
+				if (field.directive == "%p" && field.modifier.empty()) {
+					best_idx = idx;
+					found_bare = true;
+					break;
+				}
+			}
+
+			// If no bare %p, use first %{canonical}p
+			if (!found_bare) {
+				for (idx_t idx : field_indices) {
+					const auto &field = parsed_format.fields[idx];
+					if (field.directive == "%p" && field.modifier == "canonical") {
 						best_idx = idx;
 						break;
 					}

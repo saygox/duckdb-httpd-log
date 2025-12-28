@@ -1,0 +1,166 @@
+# name: test/sql/directives/port.test
+# description: Tests for port directives (%p, %{format}p)
+# group: [directives]
+
+require httpd_log
+
+# =============================================================================
+# Test Group 1: Basic port directives
+# =============================================================================
+
+# Test 1: %p produces server_port with INTEGER type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/port.log',
+        format_str='%h %p'
+    )
+)
+WHERE column_name = 'server_port';
+----
+server_port	INTEGER
+
+# Test 2: %{canonical}p produces server_port with INTEGER type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/port.log',
+        format_str='%h %{canonical}p'
+    )
+)
+WHERE column_name = 'server_port';
+----
+server_port	INTEGER
+
+# Test 3: %{local}p produces local_port with INTEGER type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/port.log',
+        format_str='%h %{local}p'
+    )
+)
+WHERE column_name = 'local_port';
+----
+local_port	INTEGER
+
+# Test 4: %{remote}p produces remote_port with INTEGER type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/port.log',
+        format_str='%h %{remote}p'
+    )
+)
+WHERE column_name = 'remote_port';
+----
+remote_port	INTEGER
+
+# =============================================================================
+# Test Group 2: %p and %{canonical}p collision handling
+# =============================================================================
+
+# Test 5: %p alone produces server_port
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/port.log',
+        format_str='%h %p'
+    )
+)
+WHERE column_name = 'server_port';
+----
+1
+
+# Test 6: %p and %{canonical}p together - only one server_port column (skip duplicate)
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/port.log',
+        format_str='%h %p %{canonical}p'
+    )
+)
+WHERE column_name LIKE 'server_port%';
+----
+1
+
+# Test 7: %{canonical}p and %p together (reversed order) - only one server_port column
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/port.log',
+        format_str='%h %{canonical}p %p'
+    )
+)
+WHERE column_name LIKE 'server_port%';
+----
+1
+
+# =============================================================================
+# Test Group 3: All port variants together
+# =============================================================================
+
+# Test 8: All three port variants - 3 distinct columns
+query T
+SELECT column_name
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/port.log',
+        format_str='%h %p %{local}p %{remote}p'
+    )
+)
+WHERE column_name IN ('server_port', 'local_port', 'remote_port')
+ORDER BY column_name;
+----
+local_port
+remote_port
+server_port
+
+# Test 9: %p with all %{format}p variants - 3 columns
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/port.log',
+        format_str='%h %p %{canonical}p %{local}p %{remote}p'
+    )
+)
+WHERE column_name IN ('server_port', 'local_port', 'remote_port');
+----
+3
+
+# =============================================================================
+# Test Group 4: Data extraction
+# =============================================================================
+
+# Test 10: Extract port values
+query III
+SELECT server_port, local_port, remote_port
+FROM read_httpd_log(
+    'test/data/directives/port.log',
+    format_str='%h %p %{local}p %{remote}p'
+)
+ORDER BY server_port;
+----
+80	8080	54321
+443	8443	12345
+
+# Test 11: All columns present - 5 columns total (client_ip, 3 ports, filename)
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/port.log',
+        format_str='%h %p %{local}p %{remote}p'
+    )
+);
+----
+5
+
