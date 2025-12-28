@@ -20,10 +20,10 @@ FROM read_httpd_log('test/data/multi_file/server*.log');
 
 # Test 3: Verify filename metadata for each file
 query TI
-SELECT filename, COUNT(*) as rows
+SELECT replace(filename, '\', '/') as filename, COUNT(*) as rows
 FROM read_httpd_log('test/data/multi_file/server*.log')
 GROUP BY filename
-ORDER BY filename;
+ORDER BY replace(filename, '\', '/');
 ----
 test/data/multi_file/server1.log	2
 test/data/multi_file/server2.log	2
@@ -100,11 +100,11 @@ FROM read_httpd_log('test/data/**/*.log');
 15
 
 # Test 12: Multi-file with raw mode
-query II
-SELECT filename, COUNT(*) as count
+query TI
+SELECT replace(filename, '\', '/') as filename, COUNT(*) as count
 FROM read_httpd_log('test/data/multi_file/server*.log', raw=true)
 GROUP BY filename
-ORDER BY filename;
+ORDER BY replace(filename, '\', '/');
 ----
 test/data/multi_file/server1.log	2
 test/data/multi_file/server2.log	2
@@ -119,17 +119,17 @@ FROM read_httpd_log('test/data/common/*.log', raw=true);
 
 # Test 14: File-level error distribution
 query TI
-SELECT filename, SUM(parse_error::INTEGER) as errors
+SELECT replace(filename, '\', '/') as filename, SUM(parse_error::INTEGER) as errors
 FROM read_httpd_log('test/data/common/*.log', raw=true)
 GROUP BY filename
 HAVING SUM(parse_error::INTEGER) > 0
-ORDER BY filename;
+ORDER BY replace(filename, '\', '/');
 ----
 test/data/common/with_errors.log	2
 
 # Test 15: Time-based ordering across files
 query T
-SELECT filename
+SELECT replace(filename, '\', '/') as filename
 FROM read_httpd_log('test/data/multi_file/server*.log')
 ORDER BY timestamp
 LIMIT 1;
@@ -138,7 +138,7 @@ test/data/multi_file/server3.log
 
 # Test 16: Average bytes per file
 query TI
-SELECT filename, AVG(bytes)::INTEGER as avg_bytes
+SELECT replace(filename, '\', '/') as filename, AVG(bytes)::INTEGER as avg_bytes
 FROM read_httpd_log('test/data/multi_file/server*.log')
 GROUP BY filename
 ORDER BY avg_bytes DESC;
