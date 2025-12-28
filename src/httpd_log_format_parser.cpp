@@ -25,6 +25,10 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%q", "query_string", LogicalTypeId::VARCHAR},
     {"%H", "protocol", LogicalTypeId::VARCHAR},
     {"%p", "server_port", LogicalTypeId::INTEGER},
+    {"%k", "keepalive_count", LogicalTypeId::INTEGER},
+    {"%X", "connection_status", LogicalTypeId::VARCHAR},
+    // Process/Thread ID directives - collision handled specially
+    // %P and %{pid}P both produce process_id, %P takes priority
     {"%P", "process_id", LogicalTypeId::INTEGER},
     // Duration directives - collision handled specially by GetDurationPriority()
     // When multiple duration directives exist, only highest precision is kept
@@ -169,6 +173,17 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 		return "duration";
 	}
 
+	// Handle %{format}P - process/thread ID variants
+	if (directive == "%P") {
+		if (modifier == "pid" || modifier.empty()) {
+			return "process_id";
+		} else if (modifier == "tid") {
+			return "thread_id";
+		} else if (modifier == "hextid") {
+			return "thread_id_hex";
+		}
+	}
+
 	// Look up directive definition
 	const DirectiveDefinition *def = GetDirectiveDefinition(directive);
 	if (def && !def->column_name.empty()) {
@@ -208,6 +223,17 @@ LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const str
 	// All variants return INTERVAL type
 	if (directive == "%T" && (modifier == "ms" || modifier == "us" || modifier == "s")) {
 		return LogicalType::INTERVAL;
+	}
+
+	// Handle %{format}P - process/thread ID variants
+	if (directive == "%P") {
+		if (modifier == "pid" || modifier.empty()) {
+			return LogicalType::INTEGER;
+		} else if (modifier == "tid") {
+			return LogicalType::BIGINT; // Thread IDs can be large
+		} else if (modifier == "hextid") {
+			return LogicalType::VARCHAR; // Hex format
+		}
 	}
 
 	// Look up directive definition
@@ -660,6 +686,42 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 				}
 			}
 			continue; // Skip standard collision resolution for duration
+		}
+
+		// Special case: Process ID - %P and %{pid}P are equivalent
+		// %P (no modifier) takes priority, %{pid}P gets skipped
+		if (column_name == "process_id") {
+			idx_t best_idx = field_indices[0];
+			bool found_bare_P = false;
+
+			// Find %P without modifier (preferred)
+			for (idx_t idx : field_indices) {
+				const auto &field = parsed_format.fields[idx];
+				if (field.directive == "%P" && field.modifier.empty()) {
+					best_idx = idx;
+					found_bare_P = true;
+					break;
+				}
+			}
+
+			// If no bare %P, use first %{pid}P
+			if (!found_bare_P) {
+				for (idx_t idx : field_indices) {
+					const auto &field = parsed_format.fields[idx];
+					if (field.directive == "%P" && field.modifier == "pid") {
+						best_idx = idx;
+						break;
+					}
+				}
+			}
+
+			// Mark all but the best as should_skip
+			for (idx_t idx : field_indices) {
+				if (idx != best_idx) {
+					parsed_format.fields[idx].should_skip = true;
+				}
+			}
+			continue;
 		}
 
 		// Separate fields by directive type to determine collision type

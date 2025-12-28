@@ -339,8 +339,24 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 				} else {
 					// Regular field - convert based on type
 					if (field.type.id() == LogicalTypeId::VARCHAR) {
-						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-						    StringVector::AddString(output.data[col_idx], value);
+						// Special handling for connection status (%X)
+						if (field.directive == "%X") {
+							string status_str;
+							if (value == "X") {
+								status_str = "aborted";
+							} else if (value == "+") {
+								status_str = "keepalive";
+							} else if (value == "-") {
+								status_str = "close";
+							} else {
+								status_str = value; // Unknown value, keep as-is
+							}
+							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+							    StringVector::AddString(output.data[col_idx], status_str);
+						} else {
+							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+							    StringVector::AddString(output.data[col_idx], value);
+						}
 					} else if (field.type.id() == LogicalTypeId::INTEGER) {
 						try {
 							// Handle "-" as 0 for numeric fields

@@ -43,7 +43,11 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `server_name_used` | VARCHAR | `%v` ( + `%V` ) | ✓ | ✓ | Server name used (when `%v` and `%V` both present) |
 | `server_port` | INTEGER | `%p` | ✓ | ✓ | Canonical server port |
 | `duration` | INTERVAL | `%D`, `%T`, or `%{UNIT}T` | ✓ | ✓ | Request duration (highest precision kept when multiple present) |
-| `process_id` | INTEGER | `%P` | ✓ | ✓ | Server process ID |
+| `keepalive_count` | INTEGER | `%k` | ✓ | ✓ | Number of keepalive requests on this connection |
+| `connection_status` | VARCHAR | `%X` | ✓ | ✓ | Connection status: `aborted`, `keepalive`, or `close` |
+| `process_id` | INTEGER | `%P` or `%{pid}P` | ✓ | ✓ | Server process ID (%P takes priority when both present) |
+| `thread_id` | BIGINT | `%{tid}P` | ✓ | ✓ | Server thread ID |
+| `thread_id_hex` | VARCHAR | `%{hextid}P` | ✓ | ✓ | Server thread ID in hexadecimal format |
 | `{header_name}` | VARCHAR | `%{Header}i` or `%{Header}o` | ✓ | ✓ | Request or response header |
 | `{header_name}_in` | VARCHAR | `%{Header}i` ( + `%{Header}o` ) | ✓ | ✓ | Request header (when both present) |
 | `{header_name}_out` | VARCHAR | `%{Header}o` ( + `%{Header}i` ) | ✓ | ✓ | Response header (when both present) |
