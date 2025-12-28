@@ -1,0 +1,122 @@
+# name: test/sql/directives/cookie_env_note.test
+# description: Tests for cookie, environment, note, and trailer directives
+# group: [directives]
+
+require httpd_log
+
+# Test 1: Cookie directive (%{...}C) - column name generated from modifier
+query TT
+SELECT session_id, client_ip
+FROM read_httpd_log(
+    'test/data/directives/cookie_env_note.log',
+    format_str='%h %{session_id}C'
+)
+ORDER BY session_id;
+----
+session123	192.168.1.1
+user456	192.168.1.2
+
+# Test 2: Environment directive (%{...}e) - column exists
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/cookie_env_note.log',
+        format_str='%h %{DOCUMENT_ROOT}e'
+    )
+)
+WHERE column_name = 'document_root';
+----
+1
+
+# Test 3: Note directive (%{...}n) - column exists
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/cookie_env_note.log',
+        format_str='%h %{my_note}n'
+    )
+)
+WHERE column_name = 'my_note';
+----
+1
+
+# Test 4: Request trailer directive (%{...}^ti) - column exists
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/cookie_env_note.log',
+        format_str='%h %{X-Trailer}^ti'
+    )
+)
+WHERE column_name = 'x_trailer';
+----
+1
+
+# Test 5: Response trailer directive (%{...}^to) - column exists
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/cookie_env_note.log',
+        format_str='%h %{X-Trail}^to'
+    )
+)
+WHERE column_name = 'x_trail';
+----
+1
+
+# Test 6: Multiple cookies - both columns exist
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/cookie_env_note.log',
+        format_str='%h %{cookie1}C %{cookie2}C'
+    )
+)
+WHERE column_name LIKE 'cookie%';
+----
+2
+
+# Test 7: Verify all new directive types are VARCHAR
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/cookie_env_note.log',
+        format_str='%h %{session_id}C'
+    )
+)
+WHERE column_name = 'session_id';
+----
+session_id	VARCHAR
+
+# Test 8: Trailer collision - both ^ti and ^to with same name get suffixes
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/cookie_env_note.log',
+        format_str='%h %{X-Trail}^ti %{X-Trail}^to'
+    )
+)
+WHERE column_name LIKE 'x_trail%';
+----
+2
+
+# Test 9: Hyphen in modifier converted to underscore
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/cookie_env_note.log',
+        format_str='%h %{my-cookie}C'
+    )
+)
+WHERE column_name = 'my_cookie';
+----
+1
+

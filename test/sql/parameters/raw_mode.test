@@ -232,4 +232,4 @@ SELECT
     (SELECT COUNT(*) FROM read_httpd_log('test/data/**/*.log')) as default_mode,
     (SELECT COUNT(*) FROM read_httpd_log('test/data/**/*.log', raw=true)) as raw_mode;
 ----
-41	91
+41	95

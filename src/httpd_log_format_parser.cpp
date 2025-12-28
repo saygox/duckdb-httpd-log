@@ -46,6 +46,15 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     // Header directives (dynamic column name, collision with each other)
     {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers
     {"%o", "", LogicalTypeId::VARCHAR, "_out", 1}, // Response headers
+
+    // Cookie, Environment, Note directives (dynamic column name)
+    {"%C", "", LogicalTypeId::VARCHAR, "_cookie", 2},
+    {"%e", "", LogicalTypeId::VARCHAR, "_env", 2},
+    {"%n", "", LogicalTypeId::VARCHAR, "_note", 2},
+
+    // Trailer directives (dynamic column name)
+    {"%^ti", "", LogicalTypeId::VARCHAR, "_trail_in", 2},
+    {"%^to", "", LogicalTypeId::VARCHAR, "_trail_out", 2},
 };
 
 // Typed header rules - maps header names to specific types with direction constraints
@@ -126,10 +135,14 @@ LogicalTypeId HttpdLogFormatParser::GetTypedHeaderType(const string &header_name
 }
 
 string HttpdLogFormatParser::GetColumnName(const string &directive, const string &modifier) {
-	// Handle special case for %{...}i and %{...}o (request/response headers)
-	if (directive == "%i" || directive == "%o") {
+	// Handle special case for directives with dynamic column names from modifier:
+	// %{...}i (request headers), %{...}o (response headers),
+	// %{...}C (cookies), %{...}e (env vars), %{...}n (notes),
+	// %{...}^ti (request trailers), %{...}^to (response trailers)
+	if (directive == "%i" || directive == "%o" || directive == "%C" || directive == "%e" ||
+	    directive == "%n" || directive == "%^ti" || directive == "%^to") {
 		if (!modifier.empty()) {
-			// Convert header name to lowercase column name
+			// Convert modifier to lowercase column name
 			string col_name = modifier;
 			std::transform(col_name.begin(), col_name.end(), col_name.begin(), ::tolower);
 
@@ -185,6 +198,12 @@ LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const str
 		return LogicalType::VARCHAR;
 	}
 
+	// Cookie, Environment, Note, and Trailer directives - always VARCHAR
+	if (directive == "%C" || directive == "%e" || directive == "%n" ||
+	    directive == "%^ti" || directive == "%^to") {
+		return LogicalType::VARCHAR;
+	}
+
 	// Handle %{UNIT}T - time taken with unit (ms, us, s)
 	// All variants return INTERVAL type
 	if (directive == "%T" && (modifier == "ms" || modifier == "us" || modifier == "s")) {
@@ -223,15 +242,22 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 			string modifier;
 			size_t start_pos = pos;
 
-			// Check for modifiers like %{...}i or %{...}o
+			// Check for modifiers like %{...}i, %{...}o, %{...}^ti, %{...}^to
 			if (pos + 1 < format_str.length() && format_str[pos + 1] == '{') {
 				// Find the closing }
 				size_t close_pos = format_str.find('}', pos + 2);
 				if (close_pos != string::npos && close_pos + 1 < format_str.length()) {
 					modifier = format_str.substr(pos + 2, close_pos - pos - 2);
-					char type_char = format_str[close_pos + 1];
-					directive = "%" + string(1, type_char);
-					pos = close_pos + 2;
+					// Check for ^ti or ^to trailer directives
+					if (format_str[close_pos + 1] == '^' && close_pos + 3 < format_str.length()) {
+						directive = "%" + format_str.substr(close_pos + 1, 3); // %^ti or %^to
+						pos = close_pos + 4;
+					} else {
+						// Single char directive (i, o, C, e, n, etc.)
+						char type_char = format_str[close_pos + 1];
+						directive = "%" + string(1, type_char);
+						pos = close_pos + 2;
+					}
 				} else {
 					// Malformed directive, skip
 					pos++;

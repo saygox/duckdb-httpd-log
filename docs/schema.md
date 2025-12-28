@@ -52,6 +52,11 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `content_length_out` | BIGINT | `%{Content-Length}o` ( + `%{Content-Length}i` ) | ✓ | ✓ | Response Content-Length (when both present) |
 | `age` | INTEGER | `%{Age}o` | ✓ | ✓ | Response Age header |
 | `max_forwards` | INTEGER | `%{Max-Forwards}i` | ✓ | ✓ | Request Max-Forwards header |
+| `{cookie_name}` | VARCHAR | `%{Name}C` | ✓ | ✓ | Cookie value |
+| `{var_name}` | VARCHAR | `%{Name}e` | ✓ | ✓ | Environment variable |
+| `{note_name}` | VARCHAR | `%{Name}n` | ✓ | ✓ | Note from another module |
+| `{trailer_name}` | VARCHAR | `%{Name}^ti` | ✓ | ✓ | Request trailer line |
+| `{trailer_name}` | VARCHAR | `%{Name}^to` | ✓ | ✓ | Response trailer line |
 | `filename` | VARCHAR | (auto) | ✓ | ✓ | Source log file path (always included) |
 | `parse_error` | BOOLEAN | (auto) | ✗ | ✓ | Whether parsing failed |
 | `raw_line` | VARCHAR | (auto) | ✗ | ✓ | Original log line (only for parse errors) |
