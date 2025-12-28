@@ -8,59 +8,95 @@
 
 namespace duckdb {
 
-// Apache LogFormat directives to column name mapping
-const std::unordered_map<string, string> HttpdLogFormatParser::directive_to_column = {
-    {"%h", "client_ip"},   // Remote hostname (IP address)
-    {"%l", "ident"},       // Remote logname (from identd)
-    {"%u", "auth_user"},   // Remote user (from auth)
-    {"%t", "timestamp"},   // Time the request was received
-    {"%r", "request"},     // First line of request (method path protocol)
-    {"%>s", "status"},     // Status code
-    {"%s", "status"},      // Status code (alternative)
-    {"%b", "bytes"},       // Size of response in bytes (excluding headers)
-    {"%B", "bytes"},       // Size of response in bytes (alternative)
-    {"%m", "method"},      // Request method
-    {"%U", "path"},        // URL path requested
-    {"%H", "protocol"},    // Request protocol
-    {"%v", "server_name"}, // Canonical server name
-    {"%V", "server_name"}, // Server name (alternative)
-    {"%p", "server_port"}, // Port the request was served on
-    {"%P", "process_id"},  // Process ID of child that serviced request
-    {"%D", "time_us"},     // Time taken to serve request in microseconds
-    {"%T", "time_sec"},    // Time taken to serve request in seconds
+// Unified directive definitions - combines column name, type, and collision rules
+// Format: directive, column_name, type, collision_suffix, collision_priority
+// Priority 0 = keeps base name when collision occurs, higher = gets suffix
+const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitions = {
+    // Basic directives (no collision rules needed)
+    {"%h", "client_ip", LogicalTypeId::VARCHAR},
+    {"%l", "ident", LogicalTypeId::VARCHAR},
+    {"%u", "auth_user", LogicalTypeId::VARCHAR},
+    {"%t", "timestamp", LogicalTypeId::TIMESTAMP},
+    {"%r", "request", LogicalTypeId::VARCHAR},
+    {"%m", "method", LogicalTypeId::VARCHAR},
+    {"%U", "path", LogicalTypeId::VARCHAR},
+    {"%H", "protocol", LogicalTypeId::VARCHAR},
+    {"%p", "server_port", LogicalTypeId::INTEGER},
+    {"%P", "process_id", LogicalTypeId::INTEGER},
+    {"%D", "time_us", LogicalTypeId::BIGINT},
+    {"%T", "time_sec", LogicalTypeId::BIGINT},
+
+    // Status code directives (collision pair)
+    {"%>s", "status", LogicalTypeId::INTEGER, "", 0},        // Final status gets base name
+    {"%s", "status", LogicalTypeId::INTEGER, "_original", 1}, // Original status gets suffix
+
+    // Server name directives (collision pair)
+    {"%v", "server_name", LogicalTypeId::VARCHAR, "", 0},     // Canonical name gets base name
+    {"%V", "server_name", LogicalTypeId::VARCHAR, "_used", 1}, // Used name gets suffix
+
+    // Bytes directives (collision pair)
+    {"%B", "bytes", LogicalTypeId::BIGINT, "", 0},      // Numeric bytes gets base name
+    {"%b", "bytes", LogicalTypeId::BIGINT, "_clf", 1},  // CLF format gets suffix
+
+    // Header directives (dynamic column name, collision with each other)
+    {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers
+    {"%o", "", LogicalTypeId::VARCHAR, "_out", 1}, // Response headers
 };
 
-// Directive to data type mapping
-const std::unordered_map<string, LogicalTypeId> HttpdLogFormatParser::directive_to_type = {
-    {"%h", LogicalTypeId::VARCHAR},   {"%l", LogicalTypeId::VARCHAR}, {"%u", LogicalTypeId::VARCHAR},
-    {"%t", LogicalTypeId::TIMESTAMP}, {"%r", LogicalTypeId::VARCHAR}, {"%>s", LogicalTypeId::INTEGER},
-    {"%s", LogicalTypeId::INTEGER},   {"%b", LogicalTypeId::BIGINT},  {"%B", LogicalTypeId::BIGINT},
-    {"%m", LogicalTypeId::VARCHAR},   {"%U", LogicalTypeId::VARCHAR}, {"%H", LogicalTypeId::VARCHAR},
-    {"%v", LogicalTypeId::VARCHAR},   {"%V", LogicalTypeId::VARCHAR}, {"%p", LogicalTypeId::INTEGER},
-    {"%P", LogicalTypeId::INTEGER},   {"%D", LogicalTypeId::BIGINT},  {"%T", LogicalTypeId::BIGINT},
+// Typed header rules - maps header names to specific types with direction constraints
+// Format: header_name (lowercase), type, applies_to_request (%i), applies_to_response (%o)
+const std::vector<TypedHeaderRule> HttpdLogFormatParser::typed_header_rules = {
+    {"content-length", LogicalTypeId::BIGINT, true, true},   // Both request and response
+    {"age", LogicalTypeId::INTEGER, false, true},            // Response only
+    {"max-forwards", LogicalTypeId::INTEGER, true, false},   // Request only
 };
 
-// Collision resolution rules: directive -> (suffix, priority)
-// Priority 0 = preferred for base name when alone, higher = gets suffix when colliding
-// Extensible: add new rules here for future directive types (e.g., %e for env vars)
-const std::vector<CollisionRule> HttpdLogFormatParser::collision_rules = {
-    // Header directives: request (%i) vs response (%o)
-    // When both %{X}i and %{X}o are present, they get _in and _out suffixes
-    {"%i", "_in", 1},
-    {"%o", "_out", 1},
+// Lookup caches for O(1) access
+std::unordered_map<string, const DirectiveDefinition *> HttpdLogFormatParser::directive_cache;
+std::unordered_map<string, const TypedHeaderRule *> HttpdLogFormatParser::header_cache;
+bool HttpdLogFormatParser::cache_initialized = false;
 
-    // Status code directives
-    {"%>s", "", 0}, // Final status gets base name
-    {"%s", "_original", 1},
+// Initialize lookup caches from static vectors
+void HttpdLogFormatParser::InitializeCaches() {
+	if (cache_initialized) {
+		return;
+	}
 
-    // Server name directives
-    {"%v", "", 0}, // Canonical server name gets base name
-    {"%V", "_used", 1},
+	// Build directive cache
+	for (const auto &def : directive_definitions) {
+		directive_cache[def.directive] = &def;
+	}
 
-    // Bytes directives
-    {"%B", "", 0},    // Numeric bytes gets base name
-    {"%b", "_clf", 1} // CLF format gets suffix
-};
+	// Build header cache
+	for (const auto &rule : typed_header_rules) {
+		header_cache[rule.header_name] = &rule;
+	}
+
+	cache_initialized = true;
+}
+
+// Get directive definition by directive string (O(1) lookup)
+const DirectiveDefinition *HttpdLogFormatParser::GetDirectiveDefinition(const string &directive) {
+	InitializeCaches();
+	auto it = directive_cache.find(directive);
+	return (it != directive_cache.end()) ? it->second : nullptr;
+}
+
+// Get typed header type for a header name and directive (O(1) lookup)
+LogicalTypeId HttpdLogFormatParser::GetTypedHeaderType(const string &header_name, const string &directive) {
+	InitializeCaches();
+
+	// Normalize header name to lowercase
+	string header_lower = header_name;
+	std::transform(header_lower.begin(), header_lower.end(), header_lower.begin(), ::tolower);
+
+	auto it = header_cache.find(header_lower);
+	if (it != header_cache.end() && it->second->AppliesTo(directive)) {
+		return it->second->type;
+	}
+
+	return LogicalTypeId::INVALID; // No type override found
+}
 
 string HttpdLogFormatParser::GetColumnName(const string &directive, const string &modifier) {
 	// Handle special case for %{...}i and %{...}o (request/response headers)
@@ -77,10 +113,10 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 		}
 	}
 
-	// Look up standard directive
-	auto it = directive_to_column.find(directive);
-	if (it != directive_to_column.end()) {
-		return it->second;
+	// Look up directive definition
+	const DirectiveDefinition *def = GetDirectiveDefinition(directive);
+	if (def && !def->column_name.empty()) {
+		return def->column_name;
 	}
 
 	// Default: use directive as-is (remove %)
@@ -95,23 +131,10 @@ LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const str
 	// Special case for headers with typed support
 	if (directive == "%i" || directive == "%o") {
 		if (!modifier.empty()) {
-			// Normalize header name to lowercase for case-insensitive comparison
-			string header_lower = modifier;
-			std::transform(header_lower.begin(), header_lower.end(), header_lower.begin(), ::tolower);
-
-			// Content-Length (request & response) → BIGINT
-			if (header_lower == "content-length") {
-				return LogicalType::BIGINT;
-			}
-
-			// Age (response only) → INTEGER
-			if (header_lower == "age" && directive == "%o") {
-				return LogicalType::INTEGER;
-			}
-
-			// Max-Forwards (request only) → INTEGER
-			if (header_lower == "max-forwards" && directive == "%i") {
-				return LogicalType::INTEGER;
+			// Check for typed header override
+			LogicalTypeId type_id = GetTypedHeaderType(modifier, directive);
+			if (type_id != LogicalTypeId::INVALID) {
+				return LogicalType(type_id);
 			}
 		}
 
@@ -119,10 +142,10 @@ LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const str
 		return LogicalType::VARCHAR;
 	}
 
-	// Look up standard directive type
-	auto it = directive_to_type.find(directive);
-	if (it != directive_to_type.end()) {
-		return LogicalType(it->second);
+	// Look up directive definition
+	const DirectiveDefinition *def = GetDirectiveDefinition(directive);
+	if (def) {
+		return LogicalType(def->type);
 	}
 
 	// Default to VARCHAR for unknown directives
@@ -499,33 +522,24 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		// Example: %{Content-Length}i and %{Content-Length}o both produce "content_length"
 
 		// Find the applicable rule for each directive and sort by priority
-		struct FieldWithRule {
+		struct FieldWithDef {
 			idx_t field_idx;
-			const CollisionRule *rule;
+			const DirectiveDefinition *def;
 			int priority;
 		};
-		vector<FieldWithRule> fields_with_rules;
+		vector<FieldWithDef> fields_with_defs;
 
 		for (idx_t idx : field_indices) {
 			const auto &field = parsed_format.fields[idx];
-			const CollisionRule *rule = nullptr;
-			int priority = 999; // Default: low priority (no rule found)
+			const DirectiveDefinition *def = GetDirectiveDefinition(field.directive);
+			int priority = def ? def->collision_priority : 999; // Default: low priority
 
-			// Find matching rule for this directive
-			for (const auto &r : collision_rules) {
-				if (r.directive == field.directive) {
-					rule = &r;
-					priority = r.priority;
-					break;
-				}
-			}
-
-			fields_with_rules.push_back({idx, rule, priority});
+			fields_with_defs.push_back({idx, def, priority});
 		}
 
 		// Sort by priority (lowest first = highest priority)
-		std::sort(fields_with_rules.begin(), fields_with_rules.end(),
-		          [](const FieldWithRule &a, const FieldWithRule &b) { return a.priority < b.priority; });
+		std::sort(fields_with_defs.begin(), fields_with_defs.end(),
+		          [](const FieldWithDef &a, const FieldWithDef &b) { return a.priority < b.priority; });
 
 		// Check if this is a header collision (only %i and/or %o involved)
 		bool has_i = by_directive.count("%i") > 0;
@@ -536,24 +550,24 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		// For other collisions, use priority-based resolution
 		if (is_pure_header_collision) {
 			// Both header types present - apply suffixes to both
-			for (const auto &fwr : fields_with_rules) {
-				auto &field = parsed_format.fields[fwr.field_idx];
-				if (fwr.rule) {
-					field.column_name = column_name + fwr.rule->suffix;
+			for (const auto &fwd : fields_with_defs) {
+				auto &field = parsed_format.fields[fwd.field_idx];
+				if (fwd.def) {
+					field.column_name = column_name + fwd.def->collision_suffix;
 				}
 			}
 		} else {
 			// Mixed collision or standard directive pairs
 			// Priority 0 gets base name (or its own suffix if defined)
 			// Others get their suffixes
-			for (const auto &fwr : fields_with_rules) {
-				auto &field = parsed_format.fields[fwr.field_idx];
-				if (fwr.rule) {
-					if (fwr.rule->suffix.empty()) {
+			for (const auto &fwd : fields_with_defs) {
+				auto &field = parsed_format.fields[fwd.field_idx];
+				if (fwd.def) {
+					if (fwd.def->collision_suffix.empty()) {
 						// Priority 0 with empty suffix keeps base name
 						field.column_name = column_name;
 					} else {
-						field.column_name = column_name + fwr.rule->suffix;
+						field.column_name = column_name + fwd.def->collision_suffix;
 					}
 				}
 			}
@@ -562,8 +576,8 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		// Handle duplicates within each directive type after collision resolution
 		// Example: %{X}i + %{X}i + %{X}o → x_in, x_in_2, x_out
 		std::unordered_map<string, int> name_counts;
-		for (const auto &fwr : fields_with_rules) {
-			auto &field = parsed_format.fields[fwr.field_idx];
+		for (const auto &fwd : fields_with_defs) {
+			auto &field = parsed_format.fields[fwd.field_idx];
 			string current_name = field.column_name;
 			int count = ++name_counts[current_name];
 			if (count > 1) {

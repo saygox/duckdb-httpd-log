@@ -7,6 +7,45 @@
 
 namespace duckdb {
 
+// Unified directive definition - combines column name, type, and collision rules
+struct DirectiveDefinition {
+	string directive;        // The format directive (e.g., "%h", "%t", "%i")
+	string column_name;      // Default column name (e.g., "client_ip", empty for headers)
+	LogicalTypeId type;      // Data type (e.g., VARCHAR, INTEGER, TIMESTAMP)
+	string collision_suffix; // Suffix when collision occurs (e.g., "_in", "_out")
+	int collision_priority;  // Resolution priority (0 = highest, keeps base name)
+
+	DirectiveDefinition(string directive_p, string column_name_p, LogicalTypeId type_p,
+	                    string collision_suffix_p = "", int collision_priority_p = 0)
+	    : directive(std::move(directive_p)), column_name(std::move(column_name_p)), type(type_p),
+	      collision_suffix(std::move(collision_suffix_p)), collision_priority(collision_priority_p) {
+	}
+};
+
+// Typed header rule - maps header names to specific types with direction constraints
+struct TypedHeaderRule {
+	string header_name;       // Header name (lowercase normalized, e.g., "content-length")
+	LogicalTypeId type;       // Override type (e.g., BIGINT, INTEGER)
+	bool applies_to_request;  // Applies to %i (request headers)
+	bool applies_to_response; // Applies to %o (response headers)
+
+	TypedHeaderRule(string header_p, LogicalTypeId type_p, bool request_p, bool response_p)
+	    : header_name(std::move(header_p)), type(type_p), applies_to_request(request_p),
+	      applies_to_response(response_p) {
+	}
+
+	// Check if this rule applies to the given directive
+	bool AppliesTo(const string &directive) const {
+		if (directive == "%i") {
+			return applies_to_request;
+		}
+		if (directive == "%o") {
+			return applies_to_response;
+		}
+		return false;
+	}
+};
+
 // Represents a single field in the log format
 struct FormatField {
 	string directive;   // The format directive (e.g., "%h", "%t", "%{Referer}i")
@@ -20,19 +59,6 @@ struct FormatField {
 	            string modifier_p = "", bool should_skip_p = false)
 	    : directive(std::move(directive_p)), column_name(std::move(column_name_p)), type(std::move(type_p)),
 	      is_quoted(is_quoted_p), modifier(std::move(modifier_p)), should_skip(should_skip_p) {
-	}
-};
-
-// Rule for resolving column name collisions between directives
-// When multiple directives produce the same column name (e.g., %{Content-Length}i and %{Content-Length}o),
-// these rules determine how to disambiguate them with suffixes
-struct CollisionRule {
-	string directive; // The format directive this rule applies to (e.g., "%i", "%o")
-	string suffix;    // Suffix to add when collision occurs (e.g., "_in", "_out")
-	int priority;     // Resolution priority (0 = highest, may keep base name when alone)
-
-	CollisionRule(string directive_p, string suffix_p, int priority_p = 0)
-	    : directive(std::move(directive_p)), suffix(std::move(suffix_p)), priority(priority_p) {
 	}
 };
 
@@ -98,14 +124,25 @@ public:
 	static bool ParseRequest(const string &request, string &method, string &path, string &protocol);
 
 private:
-	// Map of standard Apache LogFormat directives to column names
-	static const std::unordered_map<string, string> directive_to_column;
+	// Unified directive definitions - combines column name, type, and collision rules
+	static const std::vector<DirectiveDefinition> directive_definitions;
 
-	// Map of directives to their data types
-	static const std::unordered_map<string, LogicalTypeId> directive_to_type;
+	// Typed header rules - maps header names to specific types with direction constraints
+	static const std::vector<TypedHeaderRule> typed_header_rules;
 
-	// Collision resolution rules for directives that may produce same column name
-	static const std::vector<CollisionRule> collision_rules;
+	// Lookup caches for O(1) access (built on first use)
+	static std::unordered_map<string, const DirectiveDefinition *> directive_cache;
+	static std::unordered_map<string, const TypedHeaderRule *> header_cache;
+	static bool cache_initialized;
+
+	// Initialize lookup caches from directive_definitions and typed_header_rules
+	static void InitializeCaches();
+
+	// Get directive definition by directive string (O(1) lookup)
+	static const DirectiveDefinition *GetDirectiveDefinition(const string &directive);
+
+	// Get typed header type for a header name and directive (O(1) lookup)
+	static LogicalTypeId GetTypedHeaderType(const string &header_name, const string &directive);
 
 	// Resolve column name collisions using rule-based approach
 	// Handles both different directives producing same name (e.g., %{X}i + %{X}o)

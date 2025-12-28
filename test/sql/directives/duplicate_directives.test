@@ -58,7 +58,7 @@ WHERE column_name = 'server_name';
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
-        'test/data/directives/server_V_only.log',
+        'test/data/directives/server_V_directive.log',
         format_str='%h %V %t "%r" %>s %b'
     )
 )
