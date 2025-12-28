@@ -1,0 +1,182 @@
+# name: test/sql/directives/logio.test
+# description: Tests for mod_logio byte counting directives (%I, %O, %S)
+# group: [directives]
+
+require httpd_log
+
+# =============================================================================
+# Test Group 1: Column types
+# =============================================================================
+
+# Test 1: %I bytes_received - column exists with BIGINT type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/logio.log',
+        format_str='%h %I %O %S'
+    )
+)
+WHERE column_name = 'bytes_received';
+----
+bytes_received	BIGINT
+
+# Test 2: %O bytes_sent - column exists with BIGINT type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/logio.log',
+        format_str='%h %I %O %S'
+    )
+)
+WHERE column_name = 'bytes_sent';
+----
+bytes_sent	BIGINT
+
+# Test 3: %S bytes_transferred - column exists with BIGINT type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/logio.log',
+        format_str='%h %I %O %S'
+    )
+)
+WHERE column_name = 'bytes_transferred';
+----
+bytes_transferred	BIGINT
+
+# =============================================================================
+# Test Group 2: Value extraction
+# =============================================================================
+
+# Test 4: Extract bytes_received values
+query I
+SELECT bytes_received
+FROM read_httpd_log(
+    'test/data/directives/logio.log',
+    format_str='%h %I %O %S'
+)
+ORDER BY bytes_received;
+----
+256
+512
+1024
+
+# Test 5: Extract bytes_sent values
+query I
+SELECT bytes_sent
+FROM read_httpd_log(
+    'test/data/directives/logio.log',
+    format_str='%h %I %O %S'
+)
+ORDER BY bytes_sent;
+----
+1024
+2048
+4096
+
+# Test 6: Extract bytes_transferred values
+query I
+SELECT bytes_transferred
+FROM read_httpd_log(
+    'test/data/directives/logio.log',
+    format_str='%h %I %O %S'
+)
+ORDER BY bytes_transferred;
+----
+1280
+3072
+4608
+
+# =============================================================================
+# Test Group 3: All columns together
+# =============================================================================
+
+# Test 7: All three columns present - 4 columns total (client_ip + 3 byte columns + filename)
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/logio.log',
+        format_str='%h %I %O %S'
+    )
+);
+----
+5
+
+# Test 8: Extract all values from first row
+query TIII
+SELECT client_ip, bytes_received, bytes_sent, bytes_transferred
+FROM read_httpd_log(
+    'test/data/directives/logio.log',
+    format_str='%h %I %O %S'
+)
+ORDER BY bytes_received DESC
+LIMIT 1;
+----
+192.168.1.1	1024	2048	3072
+
+# =============================================================================
+# Test Group 4: Individual directives
+# =============================================================================
+
+# Test 9: %I alone
+query TI
+SELECT client_ip, bytes_received
+FROM read_httpd_log(
+    'test/data/directives/logio.log',
+    format_str='%h %I %O %S'
+)
+WHERE bytes_received = 512;
+----
+192.168.1.2	512
+
+# Test 10: %O alone
+query TI
+SELECT client_ip, bytes_sent
+FROM read_httpd_log(
+    'test/data/directives/logio.log',
+    format_str='%h %I %O %S'
+)
+WHERE bytes_sent = 4096;
+----
+192.168.1.2	4096
+
+# Test 11: %S alone
+query TI
+SELECT client_ip, bytes_transferred
+FROM read_httpd_log(
+    'test/data/directives/logio.log',
+    format_str='%h %I %O %S'
+)
+WHERE bytes_transferred = 1280;
+----
+192.168.1.3	1280
+
+# =============================================================================
+# Test Group 5: Aggregations
+# =============================================================================
+
+# Test 12: Sum of all bytes
+query III
+SELECT SUM(bytes_received), SUM(bytes_sent), SUM(bytes_transferred)
+FROM read_httpd_log(
+    'test/data/directives/logio.log',
+    format_str='%h %I %O %S'
+);
+----
+1792	7168	8960
+
+# Test 13: Verify bytes_transferred = bytes_received + bytes_sent for each row
+query I
+SELECT COUNT(*)
+FROM read_httpd_log(
+    'test/data/directives/logio.log',
+    format_str='%h %I %O %S'
+)
+WHERE bytes_transferred = bytes_received + bytes_sent;
+----
+3
+

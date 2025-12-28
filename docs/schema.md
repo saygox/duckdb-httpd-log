@@ -39,6 +39,9 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `status_original` | INTEGER | `%s` ( + `%>s` ) | ✓ | ✓ | Original status (when `%s` and `%>s` both present) |
 | `bytes` | BIGINT | `%b` or `%B` | ✓ | ✓ | Response size in bytes |
 | `bytes_clf` | BIGINT | `%b` ( + `%B` ) | ✓ | ✓ | CLF format bytes (when `%b` and `%B` both present) |
+| `bytes_received` | BIGINT | `%I` | ✓ | ✓ | Bytes received including headers (mod_logio) |
+| `bytes_sent` | BIGINT | `%O` | ✓ | ✓ | Bytes sent including headers (mod_logio) |
+| `bytes_transferred` | BIGINT | `%S` | ✓ | ✓ | Total bytes transferred (mod_logio) |
 | `server_name` | VARCHAR | `%v` or `%V` | ✓ | ✓ | Server name |
 | `server_name_used` | VARCHAR | `%v` ( + `%V` ) | ✓ | ✓ | Server name used (when `%v` and `%V` both present) |
 | `server_port` | INTEGER | `%p` or `%{canonical}p` | ✓ | ✓ | Canonical server port (%p takes priority when both present) |

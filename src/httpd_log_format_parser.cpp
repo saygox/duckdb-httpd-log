@@ -47,6 +47,11 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%B", "bytes", LogicalTypeId::BIGINT, "", 0},     // Numeric bytes gets base name
     {"%b", "bytes", LogicalTypeId::BIGINT, "_clf", 1}, // CLF format gets suffix
 
+    // mod_logio byte counting directives (separate from %b/%B)
+    {"%I", "bytes_received", LogicalTypeId::BIGINT},
+    {"%O", "bytes_sent", LogicalTypeId::BIGINT},
+    {"%S", "bytes_transferred", LogicalTypeId::BIGINT},
+
     // Header directives (dynamic column name, collision with each other)
     {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers
     {"%o", "", LogicalTypeId::VARCHAR, "_out", 1}, // Response headers
