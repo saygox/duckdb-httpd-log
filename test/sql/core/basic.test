@@ -1,0 +1,94 @@
+# name: test/sql/core/basic.test
+# description: Basic smoke tests for read_httpd_log function
+# group: [core]
+
+require httpd_log
+
+# Test 1: Extension loads successfully
+query I
+SELECT 1;
+----
+1
+
+# Test 2: Basic read without parameters (should use defaults)
+query I
+SELECT COUNT(*) FROM read_httpd_log('test/data/common/sample.log');
+----
+6
+
+# Test 3: Basic columns are accessible
+query TTI
+SELECT client_ip, auth_user, status
+FROM read_httpd_log('test/data/common/sample.log')
+ORDER BY timestamp
+LIMIT 1;
+----
+192.168.1.1	frank	200
+
+# Test 4: File metadata column exists
+query T
+SELECT DISTINCT filename
+FROM read_httpd_log('test/data/common/sample.log');
+----
+test/data/common/sample.log
+
+# Test 5: Timestamp parsing works
+query T
+SELECT timestamp::VARCHAR
+FROM read_httpd_log('test/data/common/sample.log')
+ORDER BY timestamp
+LIMIT 1;
+----
+2000-10-10 20:55:36
+
+# Test 6: HTTP method extraction works
+query T
+SELECT DISTINCT method
+FROM read_httpd_log('test/data/common/sample.log')
+ORDER BY method;
+----
+GET
+POST
+
+# Test 7: Status codes are integers
+query I
+SELECT MAX(status)
+FROM read_httpd_log('test/data/common/sample.log');
+----
+404
+
+# Test 8: Bytes field is numeric
+query I
+SELECT SUM(bytes)
+FROM read_httpd_log('test/data/common/sample.log');
+----
+9900
+
+# Test 9: Path extraction works
+query T
+SELECT path
+FROM read_httpd_log('test/data/common/sample.log')
+WHERE method = 'POST';
+----
+/api/login
+
+# Test 10: Protocol extraction works
+query T
+SELECT DISTINCT protocol
+FROM read_httpd_log('test/data/common/sample.log')
+ORDER BY protocol;
+----
+HTTP/1.0
+HTTP/1.1
+
+# Test 11: Empty file returns no rows
+query I
+SELECT COUNT(*) FROM read_httpd_log('test/data/common/empty.log');
+----
+0
+
+# Test 12: Error - nonexistent file
+statement error
+SELECT * FROM read_httpd_log('nonexistent.log');
+----
+Binder Error: No files found matching pattern: nonexistent.log

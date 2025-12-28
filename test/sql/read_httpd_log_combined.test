@@ -19,8 +19,8 @@ SELECT
     method,
     path,
     protocol
-FROM read_httpd_log('test/data/combined.log', format_type='combined')
-WHERE parse_error = 0
+FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
+WHERE parse_error = false
 ORDER BY timestamp
 LIMIT 3;
 ----
@@ -30,16 +30,16 @@ LIMIT 3;
 
 # Test 2: Verify all records are parsed correctly
 query I
-SELECT COUNT(*) FROM read_httpd_log('test/data/combined.log', format_type='combined')
-WHERE parse_error = 0;
+SELECT COUNT(*) FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
+WHERE parse_error = false;
 ----
 6
 
 # Test 3: Test referer field extraction
 query TI
 SELECT referer, COUNT(*) as count
-FROM read_httpd_log('test/data/combined.log', format_type='combined')
-WHERE parse_error = 0 AND referer != '-'
+FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
+WHERE parse_error = false AND referer != '-'
 GROUP BY referer
 ORDER BY referer;
 ----
@@ -49,8 +49,8 @@ http://www.example.com/index.html	2
 # Test 4: Test user_agent field extraction
 query I
 SELECT COUNT(DISTINCT user_agent)
-FROM read_httpd_log('test/data/combined.log', format_type='combined')
-WHERE parse_error = 0;
+FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
+WHERE parse_error = false;
 ----
 6
 
@@ -59,7 +59,7 @@ query II
 SELECT
     parse_error,
     COUNT(*) as count
-FROM read_httpd_log('test/data/combined_with_errors.log', format_type='combined')
+FROM read_httpd_log('test/data/combined/combined_with_errors.log', format_type='combined', raw=true)
 GROUP BY parse_error
 ORDER BY parse_error;
 ----
@@ -69,15 +69,15 @@ ORDER BY parse_error;
 # Test 6: Verify referer is populated for valid lines only
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/combined_with_errors.log', format_type='combined')
-WHERE parse_error = 0 AND referer IS NOT NULL;
+FROM read_httpd_log('test/data/combined/combined_with_errors.log', format_type='combined', raw=true)
+WHERE parse_error = false AND referer IS NOT NULL;
 ----
 3
 
-# Test 7: Error - using common format on combined data should fail gracefully
+# Test 7: Using common format on combined data (will parse unsuccessfully)
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/combined.log', format_type='common')
+FROM read_httpd_log('test/data/combined/combined.log', format_type='common', raw=true)
 WHERE parse_error = 1;
 ----
 6
@@ -101,7 +101,7 @@ SELECT COUNT(*) FROM (
         filename,
         parse_error,
         raw_line
-    FROM read_httpd_log('test/data/combined.log', format_type='combined')
+    FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
 );
 ----
 6
@@ -109,8 +109,8 @@ SELECT COUNT(*) FROM (
 # Test 9: Test filtering by user_agent
 query TI
 SELECT method, COUNT(*) as count
-FROM read_httpd_log('test/data/combined.log', format_type='combined')
-WHERE parse_error = 0 AND user_agent LIKE 'Mozilla%'
+FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
+WHERE parse_error = false AND user_agent LIKE 'Mozilla%'
 GROUP BY method
 ORDER BY method;
 ----
@@ -119,8 +119,8 @@ GET	5
 # Test 10: Test NULL referer represented as "-"
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/combined.log', format_type='combined')
-WHERE parse_error = 0 AND referer = '-';
+FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
+WHERE parse_error = false AND referer = '-';
 ----
 2
 
@@ -128,24 +128,24 @@ WHERE parse_error = 0 AND referer = '-';
 query I
 SELECT
     (SELECT COUNT(*) FROM (
-        DESCRIBE SELECT * FROM read_httpd_log('test/data/sample.log', format_type='common')
+        DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
     )) = 13 AND
     (SELECT COUNT(*) FROM (
-        DESCRIBE SELECT * FROM read_httpd_log('test/data/combined.log', format_type='combined')
+        DESCRIBE SELECT * FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
     )) = 15;
 ----
 1
 
 # Test 12: Error - invalid format_type
 statement error
-SELECT * FROM read_httpd_log('test/data/combined.log', format_type='invalid');
+SELECT * FROM read_httpd_log('test/data/combined/combined.log', format_type='invalid');
 ----
 Binder Error: Invalid format_type
 
-# Test 13: Test mixed common and combined data handling (common format only parses common files correctly)
+# Test 13: Test common format on common data
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/*.log', format_type='common')
-WHERE parse_error = 0;
+FROM read_httpd_log('test/data/common/*.log', format_type='common', raw=true)
+WHERE parse_error = false;
 ----
-13
+9

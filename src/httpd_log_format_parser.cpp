@@ -8,37 +8,97 @@
 
 namespace duckdb {
 
-// Apache LogFormat directives to column name mapping
-const std::unordered_map<string, string> HttpdLogFormatParser::directive_to_column = {
-    {"%h", "client_ip"},   // Remote hostname (IP address)
-    {"%l", "ident"},       // Remote logname (from identd)
-    {"%u", "auth_user"},   // Remote user (from auth)
-    {"%t", "timestamp"},   // Time the request was received
-    {"%r", "request"},     // First line of request (method path protocol)
-    {"%>s", "status"},     // Status code
-    {"%s", "status"},      // Status code (alternative)
-    {"%b", "bytes"},       // Size of response in bytes (excluding headers)
-    {"%B", "bytes"},       // Size of response in bytes (alternative)
-    {"%m", "method"},      // Request method
-    {"%U", "path"},        // URL path requested
-    {"%H", "protocol"},    // Request protocol
-    {"%v", "server_name"}, // Canonical server name
-    {"%V", "server_name"}, // Server name (alternative)
-    {"%p", "server_port"}, // Port the request was served on
-    {"%P", "process_id"},  // Process ID of child that serviced request
-    {"%D", "time_us"},     // Time taken to serve request in microseconds
-    {"%T", "time_sec"},    // Time taken to serve request in seconds
+// Unified directive definitions - combines column name, type, and collision rules
+// Format: directive, column_name, type, collision_suffix, collision_priority
+// Priority 0 = keeps base name when collision occurs, higher = gets suffix
+const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitions = {
+    // Basic directives (no collision rules needed)
+    {"%h", "client_ip", LogicalTypeId::VARCHAR},
+    {"%a", "remote_ip", LogicalTypeId::VARCHAR}, // Client IP (mod_remoteip aware)
+    {"%A", "local_ip", LogicalTypeId::VARCHAR},  // Server local IP
+    {"%l", "ident", LogicalTypeId::VARCHAR},
+    {"%u", "auth_user", LogicalTypeId::VARCHAR},
+    {"%t", "timestamp", LogicalTypeId::TIMESTAMP},
+    {"%r", "request", LogicalTypeId::VARCHAR},
+    {"%m", "method", LogicalTypeId::VARCHAR},
+    {"%U", "path", LogicalTypeId::VARCHAR},
+    {"%H", "protocol", LogicalTypeId::VARCHAR},
+    {"%p", "server_port", LogicalTypeId::INTEGER},
+    {"%P", "process_id", LogicalTypeId::INTEGER},
+    {"%D", "time_us", LogicalTypeId::BIGINT},
+    {"%T", "time_sec", LogicalTypeId::BIGINT},
+
+    // Status code directives (collision pair)
+    {"%>s", "status", LogicalTypeId::INTEGER, "", 0},         // Final status gets base name
+    {"%s", "status", LogicalTypeId::INTEGER, "_original", 1}, // Original status gets suffix
+
+    // Server name directives (collision pair)
+    {"%v", "server_name", LogicalTypeId::VARCHAR, "", 0},      // Canonical name gets base name
+    {"%V", "server_name", LogicalTypeId::VARCHAR, "_used", 1}, // Used name gets suffix
+
+    // Bytes directives (collision pair)
+    {"%B", "bytes", LogicalTypeId::BIGINT, "", 0},     // Numeric bytes gets base name
+    {"%b", "bytes", LogicalTypeId::BIGINT, "_clf", 1}, // CLF format gets suffix
+
+    // Header directives (dynamic column name, collision with each other)
+    {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers
+    {"%o", "", LogicalTypeId::VARCHAR, "_out", 1}, // Response headers
 };
 
-// Directive to data type mapping
-const std::unordered_map<string, LogicalTypeId> HttpdLogFormatParser::directive_to_type = {
-    {"%h", LogicalTypeId::VARCHAR},   {"%l", LogicalTypeId::VARCHAR}, {"%u", LogicalTypeId::VARCHAR},
-    {"%t", LogicalTypeId::TIMESTAMP}, {"%r", LogicalTypeId::VARCHAR}, {"%>s", LogicalTypeId::INTEGER},
-    {"%s", LogicalTypeId::INTEGER},   {"%b", LogicalTypeId::BIGINT},  {"%B", LogicalTypeId::BIGINT},
-    {"%m", LogicalTypeId::VARCHAR},   {"%U", LogicalTypeId::VARCHAR}, {"%H", LogicalTypeId::VARCHAR},
-    {"%v", LogicalTypeId::VARCHAR},   {"%V", LogicalTypeId::VARCHAR}, {"%p", LogicalTypeId::INTEGER},
-    {"%P", LogicalTypeId::INTEGER},   {"%D", LogicalTypeId::BIGINT},  {"%T", LogicalTypeId::BIGINT},
+// Typed header rules - maps header names to specific types with direction constraints
+// Format: header_name (lowercase), type, applies_to_request (%i), applies_to_response (%o)
+const std::vector<TypedHeaderRule> HttpdLogFormatParser::typed_header_rules = {
+    {"content-length", LogicalTypeId::BIGINT, true, true}, // Both request and response
+    {"age", LogicalTypeId::INTEGER, false, true},          // Response only
+    {"max-forwards", LogicalTypeId::INTEGER, true, false}, // Request only
 };
+
+// Lookup caches for O(1) access
+std::unordered_map<string, const DirectiveDefinition *> HttpdLogFormatParser::directive_cache;
+std::unordered_map<string, const TypedHeaderRule *> HttpdLogFormatParser::header_cache;
+bool HttpdLogFormatParser::cache_initialized = false;
+
+// Initialize lookup caches from static vectors
+void HttpdLogFormatParser::InitializeCaches() {
+	if (cache_initialized) {
+		return;
+	}
+
+	// Build directive cache
+	for (const auto &def : directive_definitions) {
+		directive_cache[def.directive] = &def;
+	}
+
+	// Build header cache
+	for (const auto &rule : typed_header_rules) {
+		header_cache[rule.header_name] = &rule;
+	}
+
+	cache_initialized = true;
+}
+
+// Get directive definition by directive string (O(1) lookup)
+const DirectiveDefinition *HttpdLogFormatParser::GetDirectiveDefinition(const string &directive) {
+	InitializeCaches();
+	auto it = directive_cache.find(directive);
+	return (it != directive_cache.end()) ? it->second : nullptr;
+}
+
+// Get typed header type for a header name and directive (O(1) lookup)
+LogicalTypeId HttpdLogFormatParser::GetTypedHeaderType(const string &header_name, const string &directive) {
+	InitializeCaches();
+
+	// Normalize header name to lowercase
+	string header_lower = header_name;
+	std::transform(header_lower.begin(), header_lower.end(), header_lower.begin(), ::tolower);
+
+	auto it = header_cache.find(header_lower);
+	if (it != header_cache.end() && it->second->AppliesTo(directive)) {
+		return it->second->type;
+	}
+
+	return LogicalTypeId::INVALID; // No type override found
+}
 
 string HttpdLogFormatParser::GetColumnName(const string &directive, const string &modifier) {
 	// Handle special case for %{...}i and %{...}o (request/response headers)
@@ -55,10 +115,20 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 		}
 	}
 
-	// Look up standard directive
-	auto it = directive_to_column.find(directive);
-	if (it != directive_to_column.end()) {
-		return it->second;
+	// Handle %{c}a - peer IP address of the connection
+	if (directive == "%a" && modifier == "c") {
+		return "peer_ip";
+	}
+
+	// Handle %{c}h - underlying TCP connection hostname (not modified by mod_remoteip)
+	if (directive == "%h" && modifier == "c") {
+		return "peer_host";
+	}
+
+	// Look up directive definition
+	const DirectiveDefinition *def = GetDirectiveDefinition(directive);
+	if (def && !def->column_name.empty()) {
+		return def->column_name;
 	}
 
 	// Default: use directive as-is (remove %)
@@ -69,16 +139,25 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 	return "field_" + col_name;
 }
 
-LogicalType HttpdLogFormatParser::GetDataType(const string &directive) {
-	// Special case for headers - always VARCHAR
+LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const string &modifier) {
+	// Special case for headers with typed support
 	if (directive == "%i" || directive == "%o") {
+		if (!modifier.empty()) {
+			// Check for typed header override
+			LogicalTypeId type_id = GetTypedHeaderType(modifier, directive);
+			if (type_id != LogicalTypeId::INVALID) {
+				return LogicalType(type_id);
+			}
+		}
+
+		// Default: VARCHAR for all other headers
 		return LogicalType::VARCHAR;
 	}
 
-	// Look up standard directive type
-	auto it = directive_to_type.find(directive);
-	if (it != directive_to_type.end()) {
-		return LogicalType(it->second);
+	// Look up directive definition
+	const DirectiveDefinition *def = GetDirectiveDefinition(directive);
+	if (def) {
+		return LogicalType(def->type);
 	}
 
 	// Default to VARCHAR for unknown directives
@@ -136,7 +215,7 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 
 			// Get column name and type for this directive
 			string column_name = GetColumnName(directive, modifier);
-			LogicalType type = GetDataType(directive);
+			LogicalType type = GetDataType(directive, modifier);
 
 			// Add field
 			result.fields.emplace_back(directive, column_name, type, in_quotes, modifier);
@@ -145,6 +224,10 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 			pos++;
 		}
 	}
+
+	// Resolve column name collisions using rule-based approach
+	// Handles %s/%>s, %v/%V, %b/%B, and header collisions like %{X}i + %{X}o
+	ResolveColumnNameCollisions(result);
 
 	// Generate regex pattern from the parsed fields
 	result.regex_pattern = GenerateRegexPattern(result);
@@ -210,12 +293,25 @@ string HttpdLogFormatParser::GenerateRegexPattern(const ParsedFormat &parsed_for
 			}
 
 			// Add regex pattern based on field type
+			// Use non-capturing groups (?:...) for should_skip fields
+			string regex_expr;
 			if (field.is_quoted) {
-				pattern << "([^\"]*)"; // Match anything except quotes
+				regex_expr = "[^\"]*"; // Match anything except quotes
 			} else if (field.directive == "%t") {
-				pattern << "\\[([^\\]]+)\\]"; // Timestamp in brackets
+				// Timestamp is special: always capture for timestamp_raw
+				pattern << "\\[([^\\]]+)\\]";
+				field_idx++;
+				continue;
 			} else {
-				pattern << "(\\S+)"; // Match non-whitespace
+				regex_expr = "\\S+"; // Match non-whitespace
+			}
+
+			if (!field.should_skip) {
+				// Normal: capturing group
+				pattern << "(" << regex_expr << ")";
+			} else {
+				// Skip: non-capturing group (matches but doesn't capture)
+				pattern << "(?:" << regex_expr << ")";
 			}
 
 			field_idx++;
@@ -248,18 +344,26 @@ string HttpdLogFormatParser::GenerateRegexPattern(const ParsedFormat &parsed_for
 }
 
 void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vector<string> &names,
-                                          vector<LogicalType> &return_types) {
+                                          vector<LogicalType> &return_types, bool include_raw_columns) {
 	names.clear();
 	return_types.clear();
 
 	// Add columns from the parsed format
 	for (const auto &field : parsed_format.fields) {
-		// Special handling for %t (timestamp) - add both timestamp and timestamp_raw
+		// Skip fields marked for skipping (e.g., %b when %B is present)
+		if (field.should_skip) {
+			continue;
+		}
+
+		// Special handling for %t (timestamp) - add timestamp and optionally timestamp_raw
 		if (field.directive == "%t") {
 			names.push_back("timestamp");
 			return_types.push_back(LogicalType::TIMESTAMP);
-			names.push_back("timestamp_raw");
-			return_types.push_back(LogicalType::VARCHAR);
+			// timestamp_raw is only included in raw mode
+			if (include_raw_columns) {
+				names.push_back("timestamp_raw");
+				return_types.push_back(LogicalType::VARCHAR);
+			}
 		}
 		// Special handling for %r (request) - decompose into method, path, protocol
 		else if (field.directive == "%r") {
@@ -277,15 +381,18 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 		}
 	}
 
-	// Add standard metadata columns
+	// Add standard metadata columns: filename is always included
 	names.push_back("filename");
 	return_types.push_back(LogicalType::VARCHAR);
 
-	names.push_back("parse_error");
-	return_types.push_back(LogicalType::BOOLEAN);
+	// parse_error and raw_line are only included in raw mode
+	if (include_raw_columns) {
+		names.push_back("parse_error");
+		return_types.push_back(LogicalType::BOOLEAN);
 
-	names.push_back("raw_line");
-	return_types.push_back(LogicalType::VARCHAR);
+		names.push_back("raw_line");
+		return_types.push_back(LogicalType::VARCHAR);
+	}
 }
 
 bool HttpdLogFormatParser::ParseTimestamp(const string &timestamp_str, timestamp_t &result) {
@@ -387,6 +494,113 @@ vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const Pars
 	}
 
 	return result;
+}
+
+void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_format) {
+	// Step 1: Build collision map - group field indices by column name
+	std::unordered_map<string, vector<idx_t>> collision_map;
+	for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
+		collision_map[parsed_format.fields[i].column_name].push_back(i);
+	}
+
+	// Step 2: Process each group with potential collisions
+	for (auto &entry : collision_map) {
+		const string &column_name = entry.first;
+		vector<idx_t> &field_indices = entry.second;
+
+		if (field_indices.size() <= 1) {
+			continue; // No collision for this column name
+		}
+
+		// Separate fields by directive type to determine collision type
+		std::unordered_map<string, vector<idx_t>> by_directive;
+		for (idx_t idx : field_indices) {
+			by_directive[parsed_format.fields[idx].directive].push_back(idx);
+		}
+
+		// Case A: All same directive (duplicates of same field, not a collision)
+		// Example: %{User-Agent}i appears twice
+		if (by_directive.size() == 1) {
+			// Number them: first keeps name, rest get _2, _3, etc.
+			int counter = 2;
+			for (size_t i = 1; i < field_indices.size(); i++) {
+				auto &field = parsed_format.fields[field_indices[i]];
+				field.column_name = column_name + "_" + std::to_string(counter++);
+			}
+			continue;
+		}
+
+		// Case B: Different directives with same column name - apply collision rules
+		// Example: %{Content-Length}i and %{Content-Length}o both produce "content_length"
+
+		// Find the applicable rule for each directive and sort by priority
+		struct FieldWithDef {
+			idx_t field_idx;
+			const DirectiveDefinition *def;
+			int priority;
+		};
+		vector<FieldWithDef> fields_with_defs;
+
+		for (idx_t idx : field_indices) {
+			const auto &field = parsed_format.fields[idx];
+			const DirectiveDefinition *def = GetDirectiveDefinition(field.directive);
+			int priority = def ? def->collision_priority : 999; // Default: low priority
+
+			fields_with_defs.push_back({idx, def, priority});
+		}
+
+		// Sort by priority (lowest first = highest priority)
+		std::sort(fields_with_defs.begin(), fields_with_defs.end(),
+		          [](const FieldWithDef &a, const FieldWithDef &b) { return a.priority < b.priority; });
+
+		// Check if this is a header collision (only %i and/or %o involved)
+		bool has_i = by_directive.count("%i") > 0;
+		bool has_o = by_directive.count("%o") > 0;
+		bool is_pure_header_collision = by_directive.size() == 2 && has_i && has_o;
+
+		// For header collisions (%{X}i + %{X}o), both get suffixes
+		// For other collisions, use priority-based resolution
+		if (is_pure_header_collision) {
+			// Both header types present - apply suffixes to both
+			for (const auto &fwd : fields_with_defs) {
+				auto &field = parsed_format.fields[fwd.field_idx];
+				if (fwd.def) {
+					field.column_name = column_name + fwd.def->collision_suffix;
+				}
+			}
+		} else {
+			// Mixed collision or standard directive pairs
+			// Priority 0 gets base name (or its own suffix if defined)
+			// Others get their suffixes
+			for (const auto &fwd : fields_with_defs) {
+				auto &field = parsed_format.fields[fwd.field_idx];
+				if (fwd.def) {
+					if (fwd.def->collision_suffix.empty()) {
+						// Priority 0 with empty suffix keeps base name
+						field.column_name = column_name;
+					} else {
+						field.column_name = column_name + fwd.def->collision_suffix;
+					}
+				}
+			}
+		}
+
+		// Handle duplicates within each directive type after collision resolution
+		// Example: %{X}i + %{X}i + %{X}o → x_in, x_in_2, x_out
+		std::unordered_map<string, int> name_counts;
+		for (const auto &fwd : fields_with_defs) {
+			auto &field = parsed_format.fields[fwd.field_idx];
+			string current_name = field.column_name;
+			int count = ++name_counts[current_name];
+			if (count > 1) {
+				field.column_name = current_name + "_" + std::to_string(count);
+			}
+		}
+	}
+
+	// Note: Fields are NOT removed (maintains sync with regex generation)
+	// should_skip flag is used in GenerateRegexPattern(), GenerateSchema(),
+	// and table function for fields that should be captured but not output
 }
 
 } // namespace duckdb

@@ -1,0 +1,157 @@
+# name: test/sql/directives/duplicate_directives.test
+# description: Tests for duplicate directive handling with dynamic column name resolution
+# group: [directives]
+
+require httpd_log
+
+# Test 1: %>s only - uses standard column name 'status'
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/status_gt_s_only.log',
+        format_str='%h %l %u %t "%r" %>s %b'
+    )
+)
+WHERE column_name = 'status';
+----
+1
+
+# Test 2: %s only - uses standard column name 'status'
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/status_s_only.log',
+        format_str='%h %l %u %t "%r" %s %b'
+    )
+)
+WHERE column_name = 'status';
+----
+1
+
+# Test 3: Both %>s and %s - dynamic resolution
+query II
+SELECT
+    COUNT(*) FILTER (WHERE column_name = 'status') as status_count,
+    COUNT(*) FILTER (WHERE column_name = 'status_original') as status_original_count
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/status_both.log',
+        format_str='%h %t "%r" %>s %b %s'
+    )
+);
+----
+1	1
+
+# Test 4: %v only - uses standard column name 'server_name'
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/server_v_only.log',
+        format_str='%h %v %t "%r" %>s %b'
+    )
+)
+WHERE column_name = 'server_name';
+----
+1
+
+# Test 5: %V only - uses standard column name 'server_name'
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/server_V_directive.log',
+        format_str='%h %V %t "%r" %>s %b'
+    )
+)
+WHERE column_name = 'server_name';
+----
+1
+
+# Test 6: Both %v and %V - dynamic resolution
+query II
+SELECT
+    COUNT(*) FILTER (WHERE column_name = 'server_name') as server_name_count,
+    COUNT(*) FILTER (WHERE column_name = 'server_name_used') as server_name_used_count
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/server_both.log',
+        format_str='%h %v %V %t "%r" %>s %b'
+    )
+);
+----
+1	1
+
+# Test 7: %b only - uses standard column name 'bytes'
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/bytes_with_dash.log',
+        format_str='%h %t "%r" %>s %b'
+    )
+)
+WHERE column_name = 'bytes';
+----
+1
+
+# Test 8: %B only - uses standard column name 'bytes'
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/bytes_with_zero.log',
+        format_str='%h %t "%r" %>s %B'
+    )
+)
+WHERE column_name = 'bytes';
+----
+1
+
+# Test 9: Both %b and %B - both are present with distinct column names
+query II
+SELECT
+    COUNT(*) FILTER (WHERE column_name = 'bytes_clf') as has_bytes_clf,
+    COUNT(*) FILTER (WHERE column_name = 'bytes') as has_bytes
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/bytes_both.log',
+        format_str='%h %t "%r" %>s %b %B'
+    )
+);
+----
+1	1
+
+# Test 10: Verify both columns are present (bytes_clf and bytes)
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/bytes_both.log',
+        format_str='%h %t "%r" %>s %b %B'
+    )
+)
+WHERE column_name LIKE 'bytes%';
+----
+2
+
+# Test 11: All three pairs together - complex scenario
+query III
+SELECT
+    COUNT(*) FILTER (WHERE column_name IN ('status', 'status_original')) as status_cols,
+    COUNT(*) FILTER (WHERE column_name IN ('server_name', 'server_name_used')) as server_cols,
+    COUNT(*) FILTER (WHERE column_name = 'bytes') as bytes_cols
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/all_pairs.log',
+        format_str='%h %v %V %t "%r" %>s %s %b %B'
+    )
+);
+----
+2	2	1
+
+# Test 12: Actual data parsing with both %>s and %s
+query II
+SELECT status, status_original
+FROM read_httpd_log(
+    'test/data/directives/redirect.log',
+    format_str='%h %t "%r" %>s %b %s'
+)
+LIMIT 1;
+----
+200	301

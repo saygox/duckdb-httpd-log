@@ -1,0 +1,5 @@
+This is not a valid log line
+192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /test.html HTTP/1.0" 200 1234
+[incomplete timestamp
+malformed without proper structure
+192.168.1.2 - - [10/Oct/2000:13:56:00 -0700] "POST /submit HTTP/1.1" 201 567
