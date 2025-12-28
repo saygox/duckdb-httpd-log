@@ -248,18 +248,21 @@ string HttpdLogFormatParser::GenerateRegexPattern(const ParsedFormat &parsed_for
 }
 
 void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vector<string> &names,
-                                          vector<LogicalType> &return_types) {
+                                          vector<LogicalType> &return_types, bool include_raw_columns) {
 	names.clear();
 	return_types.clear();
 
 	// Add columns from the parsed format
 	for (const auto &field : parsed_format.fields) {
-		// Special handling for %t (timestamp) - add both timestamp and timestamp_raw
+		// Special handling for %t (timestamp) - add timestamp and optionally timestamp_raw
 		if (field.directive == "%t") {
 			names.push_back("timestamp");
 			return_types.push_back(LogicalType::TIMESTAMP);
-			names.push_back("timestamp_raw");
-			return_types.push_back(LogicalType::VARCHAR);
+			// timestamp_raw is only included in raw mode
+			if (include_raw_columns) {
+				names.push_back("timestamp_raw");
+				return_types.push_back(LogicalType::VARCHAR);
+			}
 		}
 		// Special handling for %r (request) - decompose into method, path, protocol
 		else if (field.directive == "%r") {
@@ -277,15 +280,18 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 		}
 	}
 
-	// Add standard metadata columns
+	// Add standard metadata columns: filename is always included
 	names.push_back("filename");
 	return_types.push_back(LogicalType::VARCHAR);
 
-	names.push_back("parse_error");
-	return_types.push_back(LogicalType::BOOLEAN);
+	// parse_error and raw_line are only included in raw mode
+	if (include_raw_columns) {
+		names.push_back("parse_error");
+		return_types.push_back(LogicalType::BOOLEAN);
 
-	names.push_back("raw_line");
-	return_types.push_back(LogicalType::VARCHAR);
+		names.push_back("raw_line");
+		return_types.push_back(LogicalType::VARCHAR);
+	}
 }
 
 bool HttpdLogFormatParser::ParseTimestamp(const string &timestamp_str, timestamp_t &result) {

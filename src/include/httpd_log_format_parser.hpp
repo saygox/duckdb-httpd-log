@@ -68,9 +68,9 @@ public:
 	static string GenerateRegexPattern(const ParsedFormat &parsed_format);
 
 	// Generate DuckDB schema (column names and types) from parsed format
-	// Adds standard columns: filename, parse_error, raw_line
+	// Adds standard columns: filename, and optionally parse_error/raw_line if include_raw_columns=true
 	static void GenerateSchema(const ParsedFormat &parsed_format, vector<string> &names,
-	                           vector<LogicalType> &return_types);
+	                           vector<LogicalType> &return_types, bool include_raw_columns = true);
 
 	// Parse a log line using the parsed format
 	// Returns a vector of string values corresponding to the fields in parsed_format

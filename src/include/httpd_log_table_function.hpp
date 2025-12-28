@@ -22,10 +22,11 @@ private:
 		string format_type;
 		string format_str;
 		ParsedFormat parsed_format;
+		bool raw_mode; // Whether to include parse_error/raw_line columns and error rows
 		explicit BindData(vector<string> files_p, string format_type_p, string format_str_p,
-		                  ParsedFormat parsed_format_p)
+		                  ParsedFormat parsed_format_p, bool raw_mode_p)
 		    : files(std::move(files_p)), format_type(std::move(format_type_p)), format_str(std::move(format_str_p)),
-		      parsed_format(std::move(parsed_format_p)) {
+		      parsed_format(std::move(parsed_format_p)), raw_mode(raw_mode_p) {
 		}
 	};
 

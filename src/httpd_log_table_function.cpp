@@ -78,6 +78,16 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 	}
 	// If both are specified, format_str takes precedence (format_type is ignored)
 
+	// Process 'raw' parameter (default: false)
+	bool raw_mode = false;
+	auto raw_param = input.named_parameters.find("raw");
+	if (raw_param != input.named_parameters.end()) {
+		if (raw_param->second.type().id() != LogicalTypeId::BOOLEAN) {
+			throw BinderException("raw parameter must be a BOOLEAN");
+		}
+		raw_mode = BooleanValue::Get(raw_param->second);
+	}
+
 	// Parse the format string to extract field definitions
 	ParsedFormat parsed_format = HttpdLogFormatParser::ParseFormatString(format_str);
 
@@ -109,9 +119,9 @@ unique_ptr<FunctionData> HttpdLogTableFunction::Bind(ClientContext &context, Tab
 	}
 
 	// Generate schema dynamically from parsed format
-	HttpdLogFormatParser::GenerateSchema(parsed_format, names, return_types);
+	HttpdLogFormatParser::GenerateSchema(parsed_format, names, return_types, raw_mode);
 
-	return make_uniq<BindData>(files, actual_format_type, format_str, std::move(parsed_format));
+	return make_uniq<BindData>(files, actual_format_type, format_str, std::move(parsed_format), raw_mode);
 }
 
 unique_ptr<GlobalTableFunctionState> HttpdLogTableFunction::Init(ClientContext &context,
@@ -198,6 +208,11 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 		}
 		state.total_rows++;
 
+		// Skip error rows when raw_mode is false
+		if (parse_error && !bind_data.raw_mode) {
+			continue;
+		}
+
 		// Fill output chunk dynamically based on parsed format
 		auto start_parse = std::chrono::high_resolution_clock::now();
 		idx_t col_idx = 0;
@@ -210,10 +225,12 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 					// timestamp column
 					FlatVector::SetNull(output.data[col_idx], output_idx, true);
 					col_idx++;
-					// timestamp_raw column
-					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-					    StringVector::AddString(output.data[col_idx], "");
-					col_idx++;
+					// timestamp_raw column (only in raw mode)
+					if (bind_data.raw_mode) {
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], "");
+						col_idx++;
+					}
 				} else if (field.directive == "%r") {
 					// method, path, protocol columns
 					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
@@ -249,10 +266,12 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						FlatVector::SetNull(output.data[col_idx], output_idx, true);
 					}
 					col_idx++;
-					// timestamp_raw
-					FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-					    StringVector::AddString(output.data[col_idx], value);
-					col_idx++;
+					// timestamp_raw (only in raw mode)
+					if (bind_data.raw_mode) {
+						FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+						    StringVector::AddString(output.data[col_idx], value);
+						col_idx++;
+					}
 				} else if (field.directive == "%r") {
 					// Parse request line into method, path, protocol
 					string method, path, protocol;
@@ -311,21 +330,24 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 		state.time_parsing += std::chrono::duration<double>(end_parse - start_parse).count();
 
 		// Add metadata columns at the end
-		// filename
+		// filename (always included)
 		FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
 		    StringVector::AddString(output.data[col_idx], state.current_filename);
 		col_idx++;
 
-		// parse_error
-		FlatVector::GetData<bool>(output.data[col_idx])[output_idx] = parse_error;
-		col_idx++;
+		// parse_error and raw_line (only in raw mode)
+		if (bind_data.raw_mode) {
+			// parse_error
+			FlatVector::GetData<bool>(output.data[col_idx])[output_idx] = parse_error;
+			col_idx++;
 
-		// raw_line (only set if parse_error is true)
-		if (parse_error) {
-			FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-			    StringVector::AddString(output.data[col_idx], line);
-		} else {
-			FlatVector::SetNull(output.data[col_idx], output_idx, true);
+			// raw_line (only set if parse_error is true)
+			if (parse_error) {
+				FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+				    StringVector::AddString(output.data[col_idx], line);
+			} else {
+				FlatVector::SetNull(output.data[col_idx], output_idx, true);
+			}
 		}
 
 		output_idx++;
@@ -370,10 +392,11 @@ InsertionOrderPreservingMap<string> HttpdLogTableFunction::DynamicToString(Table
 }
 
 void HttpdLogTableFunction::RegisterFunction(ExtensionLoader &loader) {
-	// Create table function with optional format_type and format_str parameters
+	// Create table function with optional format_type, format_str, and raw parameters
 	TableFunction read_httpd_log("read_httpd_log", {LogicalType::VARCHAR}, Function, Bind, Init);
 	read_httpd_log.named_parameters["format_type"] = LogicalType::VARCHAR;
 	read_httpd_log.named_parameters["format_str"] = LogicalType::VARCHAR;
+	read_httpd_log.named_parameters["raw"] = LogicalType::BOOLEAN;
 
 	// Register profiling callback for EXPLAIN ANALYZE
 	read_httpd_log.dynamic_to_string = DynamicToString;
