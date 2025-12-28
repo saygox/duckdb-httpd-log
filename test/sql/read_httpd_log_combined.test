@@ -99,7 +99,7 @@ SELECT COUNT(*) FROM (
         bytes,
         referer,
         user_agent,
-        filename,
+        log_file,
         parse_error,
         raw_line
     FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)

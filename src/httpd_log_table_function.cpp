@@ -132,11 +132,11 @@ unique_ptr<GlobalTableFunctionState> HttpdLogTableFunction::Init(ClientContext &
 
 	if (!bind_data.files.empty()) {
 		state->current_file_idx = 0;
-		state->current_filename = bind_data.files[0];
+		state->current_file = bind_data.files[0];
 
 		// Open first file with buffered reader
 		auto &fs = FileSystem::GetFileSystem(context);
-		state->buffered_reader = make_uniq<HttpdLogBufferedReader>(fs, state->current_filename);
+		state->buffered_reader = make_uniq<HttpdLogBufferedReader>(fs, state->current_file);
 	} else {
 		state->finished = true;
 	}
@@ -183,8 +183,8 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 				break;
 			}
 
-			state.current_filename = bind_data.files[state.current_file_idx];
-			state.buffered_reader = make_uniq<HttpdLogBufferedReader>(fs, state.current_filename);
+			state.current_file = bind_data.files[state.current_file_idx];
+			state.buffered_reader = make_uniq<HttpdLogBufferedReader>(fs, state.current_file);
 			continue;
 		}
 
@@ -423,9 +423,9 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 		state.time_parsing += std::chrono::duration<double>(end_parse - start_parse).count();
 
 		// Add metadata columns at the end
-		// filename (always included)
+		// log_file (always included)
 		FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-		    StringVector::AddString(output.data[col_idx], state.current_filename);
+		    StringVector::AddString(output.data[col_idx], state.current_file);
 		col_idx++;
 
 		// parse_error and raw_line (only in raw mode)

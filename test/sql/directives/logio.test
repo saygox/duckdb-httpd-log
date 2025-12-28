@@ -94,7 +94,7 @@ ORDER BY bytes_transferred;
 # Test Group 3: All columns together
 # =============================================================================
 
-# Test 7: All three columns present - 4 columns total (client_ip + 3 byte columns + filename)
+# Test 7: All three columns present - 4 columns total (client_ip + 3 byte columns + log_file)
 query I
 SELECT COUNT(*)
 FROM (

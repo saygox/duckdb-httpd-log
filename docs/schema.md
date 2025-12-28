@@ -66,7 +66,9 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `{note_name}` | VARCHAR | `%{Name}n` | ✓ | ✓ | Note from another module |
 | `{trailer_name}` | VARCHAR | `%{Name}^ti` | ✓ | ✓ | Request trailer line |
 | `{trailer_name}` | VARCHAR | `%{Name}^to` | ✓ | ✓ | Response trailer line |
-| `filename` | VARCHAR | (auto) | ✓ | ✓ | Source log file path (always included) |
+| `filename` | VARCHAR | `%f` | ✓ | ✓ | Requested file path |
+| `request_log_id` | VARCHAR | `%L` | ✓ | ✓ | Request log ID from error log |
+| `log_file` | VARCHAR | (auto) | ✓ | ✓ | Source log file path (always included) |
 | `parse_error` | BOOLEAN | (auto) | ✗ | ✓ | Whether parsing failed |
 | `raw_line` | VARCHAR | (auto) | ✗ | ✓ | Original log line (only for parse errors) |
 
@@ -86,7 +88,7 @@ LogFormat "%h %l %u %t \"%r\" %>s %b" common
 ```
 
 **Columns (raw=false):** 11 columns
-- `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `filename`
+- `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `log_file`
 
 **Columns (raw=true):** 14 columns (adds `timestamp_raw`, `parse_error`, `raw_line`)
 
@@ -111,7 +113,7 @@ SELECT * FROM read_httpd_log(
     'access.log',
     format_str='%h %t \"%r\" %>s %b %D'
 );
--- Returns: client_ip, timestamp, method, path, query_string, protocol, status, bytes, duration, filename
+-- Returns: client_ip, timestamp, method, path, query_string, protocol, status, bytes, duration, log_file
 ```
 
 ## See Also

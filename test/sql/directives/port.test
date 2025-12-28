@@ -152,7 +152,7 @@ ORDER BY server_port;
 80	8080	54321
 443	8443	12345
 
-# Test 11: All columns present - 5 columns total (client_ip, 3 ports, filename)
+# Test 11: All columns present - 5 columns total (client_ip, 3 ports, log_file)
 query I
 SELECT COUNT(*)
 FROM (

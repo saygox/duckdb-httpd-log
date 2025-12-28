@@ -52,6 +52,10 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%O", "bytes_sent", LogicalTypeId::BIGINT},
     {"%S", "bytes_transferred", LogicalTypeId::BIGINT},
 
+    // Filename and request log ID
+    {"%f", "filename", LogicalTypeId::VARCHAR},
+    {"%L", "request_log_id", LogicalTypeId::VARCHAR},
+
     // Header directives (dynamic column name, collision with each other)
     {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers
     {"%o", "", LogicalTypeId::VARCHAR, "_out", 1}, // Response headers
@@ -502,8 +506,8 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 		}
 	}
 
-	// Add standard metadata columns: filename is always included
-	names.push_back("filename");
+	// Add standard metadata columns: log_file is always included
+	names.push_back("log_file");
 	return_types.push_back(LogicalType::VARCHAR);
 
 	// parse_error and raw_line are only included in raw mode

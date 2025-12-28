@@ -17,7 +17,7 @@ query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log')
 )
-WHERE column_name IN ('client_ip', 'timestamp', 'method', 'path', 'status', 'bytes', 'filename');
+WHERE column_name IN ('client_ip', 'timestamp', 'method', 'path', 'status', 'bytes', 'log_file');
 ----
 7
 
@@ -99,12 +99,12 @@ WHERE column_name = 'timestamp';
 ----
 1
 
-# Test 12: Verify filename column always exists
+# Test 12: Verify log_file column always exists
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log')
 )
-WHERE column_name = 'filename';
+WHERE column_name = 'log_file';
 ----
 1
 
