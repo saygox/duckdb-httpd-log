@@ -267,46 +267,81 @@ DESCRIBE SELECT * FROM read_httpd_log('access.log', format_type='common', raw=tr
 
 ## Supported LogFormat Directives
 
-When using custom formats with the `format_str` parameter, the following Apache LogFormat directives are supported:
+When using custom formats with the `format_str` parameter, the following Apache LogFormat directives are supported.
 
-| Directive | Description | Column Name | Type | Notes |
-|-----------|-------------|-------------|------|-------|
-| `%h` | Client IP address | `client_ip` | VARCHAR | Remote hostname |
-| `%l` | Remote logname (identd) | `ident` | VARCHAR | Usually "-" |
-| `%u` | Remote user (authenticated) | `auth_user` | VARCHAR | From HTTP authentication |
-| `%t` | Timestamp | `timestamp`, `timestamp_raw` | TIMESTAMP, VARCHAR | Generates two columns |
-| `%r` | Request line (full) | `method`, `path`, `protocol` | VARCHAR | Generates three columns |
-| `%>s`, `%s` | Status code (final) | `status` | INTEGER | HTTP response status |
-| `%b` | Response bytes (CLF format) | `bytes` | BIGINT | "-" becomes 0 |
-| `%B` | Response bytes (actual) | `bytes` | BIGINT | 0 if no content |
-| `%m` | Request method | `method` | VARCHAR | GET, POST, etc. |
-| `%U` | URL path | `path` | VARCHAR | Without query string |
-| `%H` | Request protocol | `protocol` | VARCHAR | HTTP/1.0, HTTP/1.1, etc. |
-| `%{Header}i` | Request header | `header_name` | VARCHAR or INTEGER/BIGINT | See Typed Headers below |
-| `%{Header}o` | Response header | `header_name` | VARCHAR or INTEGER/BIGINT | See Typed Headers below |
-| `%v` | Canonical server name | `server_name` | VARCHAR | From ServerName |
-| `%V` | Server name (UseCanonicalName) | `server_name` | VARCHAR | Requested hostname |
-| `%p` | Canonical server port | `server_port` | INTEGER | From Listen directive |
-| `%D` | Request duration (microseconds) | `time_us` | BIGINT | Time to serve request |
-| `%T` | Request duration (seconds) | `time_sec` | BIGINT | Rounded to seconds |
-| `%P` | Process ID | `process_id` | INTEGER | Server process ID |
+**Table columns:**
+- **Column Name**: DuckDB column name in the result set
+- **Type**: DuckDB data type (VARCHAR, INTEGER, BIGINT, TIMESTAMP, BOOLEAN)
+- **Directive**: Apache LogFormat directive (empty if column is metadata/diagnostic only)
+- **Included in raw=false/true**: Whether column appears in default vs raw mode
+- **Notes**: Additional information about the column
 
-### Notes on Directives
+### Standard Directives
 
-- **`%t` (timestamp)**: Always generates two columns when `raw=true`: `timestamp` (TIMESTAMP) and `timestamp_raw` (VARCHAR)
-- **`%r` (request line)**: Always splits into three columns: `method`, `path`, and `protocol`
-- **`%b` vs `%B`**: Both map to `bytes` column; `%b` treats "-" as 0, `%B` uses actual byte count
-- **`%{Header}i/o`**: The column name is derived from the header name, converted to lowercase with underscores replacing hyphens. Example: `%{User-Agent}i` → `user_agent`
+| Column Name | Type | Directive | raw=false | raw=true | Notes |
+|-------------|------|-----------|-----------|----------|-------|
+| `client_ip` | VARCHAR | `%h` | ✓ | ✓ | Client IP address / remote hostname |
+| `ident` | VARCHAR | `%l` | ✓ | ✓ | Remote logname from identd (usually "-") |
+| `auth_user` | VARCHAR | `%u` | ✓ | ✓ | Authenticated username from HTTP auth |
+| `timestamp` | TIMESTAMP | `%t` | ✓ | ✓ | Parsed request timestamp (converted to UTC) |
+| `timestamp_raw` | VARCHAR | `%t` | ✗ | ✓ | Original timestamp string from log (diagnostic) |
+| `method` | VARCHAR | `%r` or `%m` | ✓ | ✓ | HTTP method (GET, POST, etc.) |
+| `path` | VARCHAR | `%r` or `%U` | ✓ | ✓ | Request URL path (without query string) |
+| `protocol` | VARCHAR | `%r` or `%H` | ✓ | ✓ | HTTP protocol version (HTTP/1.0, HTTP/1.1, etc.) |
+| `status` | INTEGER | `%>s` or `%s` | ✓ | ✓ | HTTP status code (200, 404, 500, etc.) |
+| `bytes` or `bytes_clf` | BIGINT | `%b` or `%B` | ✓ | ✓ | Response size in bytes (see Bytes Directives below) |
+| `server_name` | VARCHAR | `%v` or `%V` | ✓ | ✓ | Server name (canonical or requested hostname) |
+| `server_port` | INTEGER | `%p` | ✓ | ✓ | Canonical server port from Listen directive |
+| `time_us` | BIGINT | `%D` | ✓ | ✓ | Request duration in microseconds |
+| `time_sec` | BIGINT | `%T` | ✓ | ✓ | Request duration in seconds (rounded) |
+| `process_id` | INTEGER | `%P` | ✓ | ✓ | Server process ID |
+
+### Bytes Directives (%b vs %B)
+
+The `%b` and `%B` directives have different semantics and are handled specially:
+
+| Column Name | Type | Directive | Behavior | Notes |
+|-------------|------|-----------|----------|-------|
+| `bytes` | BIGINT | `%b` (alone) | "-" → NULL | CLF format: dash for zero bytes |
+| `bytes` | BIGINT | `%B` (alone) | Always numeric | "0" for zero bytes (never "-") |
+| `bytes_clf` | BIGINT | `%b` (with `%B`) | "-" → NULL | CLF format when both present |
+| `bytes` | BIGINT | `%B` (with `%b`) | Always numeric | Standard format when both present |
+
+**When both `%b` and `%B` are present**, they create two separate columns (`bytes_clf` and `bytes`) to preserve the semantic difference.
+
+### Generic Header Directives
+
+Generic header directives allow logging arbitrary HTTP request/response headers:
+
+| Column Name | Type | Directive | raw=false | raw=true | Notes |
+|-------------|------|-----------|-----------|----------|-------|
+| `{header_name}` | VARCHAR | `%{HeaderName}i` | ✓ | ✓ | Request header (generic) |
+| `{header_name}` | VARCHAR | `%{HeaderName}o` | ✓ | ✓ | Response header (generic) |
+
+**Column naming**: Header names are converted to lowercase with hyphens replaced by underscores.
+- Example: `%{User-Agent}i` → `user_agent`
+- Example: `%{X-Forwarded-For}i` → `x_forwarded_for`
+
+**Note**: Some headers have special typing (see Typed HTTP Headers below).
 
 ### Typed HTTP Headers
 
 Specific HTTP headers are automatically typed as INTEGER or BIGINT instead of VARCHAR for better performance and type safety:
 
-| Header Name | Request (%i) | Response (%o) | Type | Description |
-|-------------|--------------|---------------|------|-------------|
-| `Content-Length` | BIGINT | BIGINT | BIGINT | Response/request body size in bytes |
-| `Age` | VARCHAR | INTEGER | INTEGER | Cache age in seconds (response only) |
-| `Max-Forwards` | INTEGER | VARCHAR | INTEGER | Proxy hop limit (request only) |
+| Column Name | Type | Directive | raw=false | raw=true | Notes |
+|-------------|------|-----------|-----------|----------|-------|
+| `content_length` | BIGINT | `%{Content-Length}i` | ✓ | ✓ | Request body size in bytes |
+| `content_length` | BIGINT | `%{Content-Length}o` | ✓ | ✓ | Response body size in bytes |
+| `age` | INTEGER | `%{Age}o` | ✓ | ✓ | Cache age in seconds (response only) |
+| `age` | VARCHAR | `%{Age}i` | ✓ | ✓ | Request header (not typed, remains VARCHAR) |
+| `max_forwards` | INTEGER | `%{Max-Forwards}i` | ✓ | ✓ | Proxy hop limit (request only) |
+| `max_forwards` | VARCHAR | `%{Max-Forwards}o` | ✓ | ✓ | Response header (not typed, remains VARCHAR) |
+
+**Typing rules:**
+- `Content-Length`: BIGINT for both `%i` (request) and `%o` (response)
+- `Age`: INTEGER only for `%o` (response); VARCHAR for `%i` (request)
+- `Max-Forwards`: INTEGER only for `%i` (request); VARCHAR for `%o` (response)
+- All other headers: VARCHAR (no special typing)
 
 **Features:**
 - **Case-insensitive matching**: `Content-Length`, `content-length`, and `CONTENT-LENGTH` all work
@@ -364,16 +399,21 @@ SELECT * FROM read_httpd_log(
 -- status, bytes, time_us, user_agent, filename, [diagnostic columns if raw=true]
 ```
 
-## Metadata Columns
+## Metadata and Diagnostic Columns
 
-These columns are automatically added to every schema configuration:
+These columns are automatically added and not derived from log directives:
 
-### filename
+| Column Name | Type | Directive | raw=false | raw=true | Notes |
+|-------------|------|-----------|-----------|----------|-------|
+| `filename` | VARCHAR | (none) | ✓ | ✓ | Source log file path (always included) |
+| `parse_error` | BOOLEAN | (none) | ✗ | ✓ | Whether log line failed to parse (diagnostic) |
+| `raw_line` | VARCHAR | (none) | ✗ | ✓ | Original log line text (only for parse errors) |
 
-- **Type:** VARCHAR
-- **Description:** The source log file path
-- **Always included:** Yes, in all configurations
-- **Use case:** Essential for queries across multiple files using glob patterns
+**Details:**
+
+- **`filename`**: Always included in all configurations. Essential for queries across multiple files using glob patterns.
+- **`parse_error`**: Only in raw mode. `false` (0) = successfully parsed, `true` (1) = parse failure. When `raw=false`, rows with parse errors are automatically excluded.
+- **`raw_line`**: Only in raw mode. Contains the complete original log line text, but only populated when `parse_error=true`; `NULL` for successfully parsed lines.
 
 **Example:**
 ```sql
@@ -385,6 +425,11 @@ SELECT
 FROM read_httpd_log('logs/*.log')
 GROUP BY filename
 ORDER BY requests DESC;
+
+-- Find and inspect parse errors
+SELECT filename, raw_line
+FROM read_httpd_log('logs/*.log', raw=true)
+WHERE parse_error = true;
 ```
 
 ## Data Types Reference
