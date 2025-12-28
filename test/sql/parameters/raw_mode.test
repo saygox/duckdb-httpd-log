@@ -1,6 +1,6 @@
 # name: test/sql/parameters/raw_mode.test
 # description: Comprehensive tests for raw parameter behavior
-# group: [sql]
+# group: [parameters]
 
 require httpd_log
 
@@ -230,4 +230,4 @@ SELECT
     (SELECT COUNT(*) FROM read_httpd_log('test/data/**/*.log')) as default_mode,
     (SELECT COUNT(*) FROM read_httpd_log('test/data/**/*.log', raw=true)) as raw_mode;
 ----
-24	45
+31	58

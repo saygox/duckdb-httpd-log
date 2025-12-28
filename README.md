@@ -12,6 +12,7 @@ This repository is based on https://github.com/duckdb/extension-template.
   - Combined Log Format: `%h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-agent}i"`
 - **Custom format support** via `format_str` parameter with Apache LogFormat syntax
 - **Dynamic schema generation** - columns are automatically inferred from format strings
+- **Typed HTTP headers** - automatic type detection for numeric headers (Content-Length, Age, Max-Forwards)
 - **Error handling** - malformed log lines are captured with `parse_error` flag
 - **Glob pattern support** - read multiple log files with wildcards
 
@@ -66,6 +67,34 @@ FROM read_httpd_log('logs/*.log', format_type='common')
 WHERE status >= 400 AND parse_error = false
 ORDER BY timestamp DESC;
 ```
+
+### Typed HTTP Headers
+
+The extension automatically detects and types specific numeric HTTP headers for better performance:
+
+- **`Content-Length`**: BIGINT (request/response body size in bytes)
+- **`Age`**: INTEGER (cache age in seconds, response only)
+- **`Max-Forwards`**: INTEGER (proxy hop limit, request only)
+
+All other headers remain VARCHAR. This enables numeric operations like filtering, aggregations, and sorting:
+
+```sql
+-- Filter by response size
+SELECT * FROM read_httpd_log(
+    'access.log',
+    format_str='%h %t "%r" %>s %{Content-Length}o'
+)
+WHERE content_length > 1000000;
+
+-- Aggregate cache statistics
+SELECT AVG(content_length), MAX(age)
+FROM read_httpd_log(
+    'access.log',
+    format_str='%h %t "%r" %>s %{Content-Length}o %{Age}o'
+);
+```
+
+See [Schema Documentation](docs/schema.md#typed-http-headers) for more details.
 
 ## Parameters
 

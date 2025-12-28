@@ -1,6 +1,6 @@
 # name: test/sql/directives/duplicate_directives.test
 # description: Tests for duplicate directive handling with dynamic column name resolution
-# group: [sql]
+# group: [directives]
 
 require httpd_log
 

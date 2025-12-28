@@ -1,6 +1,6 @@
 # name: test/sql/core/basic.test
 # description: Basic smoke tests for read_httpd_log function
-# group: [sql]
+# group: [core]
 
 require httpd_log
 

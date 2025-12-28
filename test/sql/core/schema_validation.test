@@ -1,6 +1,6 @@
 # name: test/sql/core/schema_validation.test
 # description: Schema validation tests for different parameter combinations
-# group: [sql]
+# group: [core]
 
 require httpd_log
 

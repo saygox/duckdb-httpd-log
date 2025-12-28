@@ -1,6 +1,6 @@
 # name: test/sql/multi_file/glob_patterns.test
 # description: Tests for multi-file reading and glob pattern support
-# group: [sql]
+# group: [multi_file]
 
 require httpd_log
 
@@ -48,7 +48,7 @@ query I
 SELECT COUNT(DISTINCT filename)
 FROM read_httpd_log('test/data/**/*.log');
 ----
-11
+13
 
 # Test 7: Filter data from specific files
 query I
@@ -97,7 +97,7 @@ query I
 SELECT COUNT(DISTINCT filename)
 FROM read_httpd_log('test/data/**/*.log');
 ----
-11
+13
 
 # Test 12: Multi-file with raw mode
 query II
@@ -196,7 +196,7 @@ SELECT
     COUNT(*) FILTER (WHERE parse_error = true) as invalid
 FROM read_httpd_log('test/data/**/*.log', raw=true);
 ----
-24	21
+31	27
 
 # Test 24: Timestamp range across multiple files
 query I

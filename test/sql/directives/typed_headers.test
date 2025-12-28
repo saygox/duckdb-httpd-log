@@ -1,0 +1,301 @@
+# name: test/sql/directives/typed_headers.test
+# description: Tests for typed HTTP header support (Content-Length, Age, Max-Forwards)
+# group: [directives]
+
+require httpd_log
+
+# Test 1: Content-Length response header has BIGINT type
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/typed_headers.log',
+        format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Age}o'
+    )
+)
+WHERE column_name = 'content_length' AND column_type = 'BIGINT';
+----
+1
+
+# Test 2: Age response header has INTEGER type
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/typed_headers.log',
+        format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Age}o'
+    )
+)
+WHERE column_name = 'age' AND column_type = 'INTEGER';
+----
+1
+
+# Test 3: Max-Forwards request header has INTEGER type
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/typed_headers_request.log',
+        format_str='%h %l %u %t "%r" %>s %{Max-Forwards}i'
+    )
+)
+WHERE column_name = 'max_forwards' AND column_type = 'INTEGER';
+----
+1
+
+# Test 4: Content-Length parses numeric values correctly
+query I
+SELECT content_length
+FROM read_httpd_log(
+    'test/data/directives/typed_headers.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Age}o'
+)
+WHERE client_ip = '192.168.1.1';
+----
+2326
+
+# Test 5: Content-Length handles "-" as NULL
+query I
+SELECT COUNT(*)
+FROM read_httpd_log(
+    'test/data/directives/typed_headers.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Age}o'
+)
+WHERE content_length IS NULL;
+----
+1
+
+# Test 6: Age parses numeric values correctly
+query I
+SELECT age
+FROM read_httpd_log(
+    'test/data/directives/typed_headers.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Age}o'
+)
+WHERE client_ip = '192.168.1.1';
+----
+3600
+
+# Test 7: Max-Forwards parses numeric values correctly
+query I
+SELECT max_forwards
+FROM read_httpd_log(
+    'test/data/directives/typed_headers_request.log',
+    format_str='%h %l %u %t "%r" %>s %{Max-Forwards}i'
+)
+WHERE client_ip = '192.168.1.1';
+----
+10
+
+# Test 8: Case-insensitive header names (content-length)
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/typed_headers.log',
+        format_str='%h %t "%r" %>s %{content-length}o'
+    )
+)
+WHERE column_name = 'content_length' AND column_type = 'BIGINT';
+----
+1
+
+# Test 9: Case-insensitive header names (CONTENT-LENGTH)
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/typed_headers.log',
+        format_str='%h %t "%r" %>s %{CONTENT-LENGTH}o'
+    )
+)
+WHERE column_name = 'content_length' AND column_type = 'BIGINT';
+----
+1
+
+# Test 10: Mixed case header names (Age vs age vs AGE)
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/typed_headers.log',
+        format_str='%h %t "%r" %>s %{AGE}o'
+    )
+)
+WHERE column_name = 'age' AND column_type = 'INTEGER';
+----
+1
+
+# Test 11: All three typed headers in one format
+query III
+SELECT
+    COUNT(*) FILTER (WHERE column_name = 'content_length' AND column_type = 'BIGINT') as cl_count,
+    COUNT(*) FILTER (WHERE column_name = 'age' AND column_type = 'INTEGER') as age_count,
+    COUNT(*) FILTER (WHERE column_name = 'max_forwards' AND column_type = 'INTEGER') as mf_count
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/typed_headers_mixed.log',
+        format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Max-Forwards}i %{Age}o'
+    )
+);
+----
+1	1	1
+
+# Test 12: Content-Length with actual data parsing
+query III
+SELECT content_length, max_forwards, age
+FROM read_httpd_log(
+    'test/data/directives/typed_headers_mixed.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Max-Forwards}i %{Age}o'
+)
+WHERE client_ip = '192.168.1.1';
+----
+1024	5	3600
+
+# Test 13: NULL handling for all three headers
+query III
+SELECT
+    content_length IS NULL as cl_null,
+    max_forwards IS NULL as mf_null,
+    age IS NULL as age_null
+FROM read_httpd_log(
+    'test/data/directives/typed_headers_mixed.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Max-Forwards}i %{Age}o'
+)
+WHERE client_ip = '192.168.1.2';
+----
+1	1	1
+
+# Test 14: Zero values are valid (not NULL)
+query III
+SELECT content_length, max_forwards, age
+FROM read_httpd_log(
+    'test/data/directives/typed_headers_mixed.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Max-Forwards}i %{Age}o'
+)
+WHERE client_ip = '192.168.1.3';
+----
+0	10	0
+
+# Test 15: Invalid values become NULL (non-numeric Content-Length)
+query I
+SELECT COUNT(*)
+FROM read_httpd_log(
+    'test/data/directives/typed_headers_edge_cases.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o'
+)
+WHERE content_length IS NULL;
+----
+2
+
+# Test 16: Large values are handled correctly (max BIGINT)
+query I
+SELECT content_length
+FROM read_httpd_log(
+    'test/data/directives/typed_headers_edge_cases.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o'
+)
+WHERE client_ip = '192.168.1.3';
+----
+9223372036854775807
+
+# Test 17: Negative values are handled correctly (min INTEGER)
+query I
+SELECT content_length
+FROM read_httpd_log(
+    'test/data/directives/typed_headers_edge_cases.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o'
+)
+WHERE client_ip = '192.168.1.4';
+----
+-2147483648
+
+# Test 18: Untyped headers remain VARCHAR
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/combined/combined.log',
+        format_str='%h %t "%r" %>s %{User-Agent}i'
+    )
+)
+WHERE column_name = 'user_agent' AND column_type = 'VARCHAR';
+----
+1
+
+# Test 19: Content-Length on request header (%i) is also BIGINT
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/typed_headers_request.log',
+        format_str='%h %t "%r" %>s %{Content-Length}i'
+    )
+)
+WHERE column_name = 'content_length' AND column_type = 'BIGINT';
+----
+1
+
+# Test 20: Age on request header (%i) should be VARCHAR (only %o is typed)
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/common/sample.log',
+        format_str='%h %t "%r" %>s %{Age}i'
+    )
+)
+WHERE column_name = 'age' AND column_type = 'VARCHAR';
+----
+1
+
+# Test 21: Max-Forwards on response header (%o) should be VARCHAR (only %i is typed)
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/common/sample.log',
+        format_str='%h %t "%r" %>s %{Max-Forwards}o'
+    )
+)
+WHERE column_name = 'max_forwards' AND column_type = 'VARCHAR';
+----
+1
+
+# Test 22: Aggregate functions work with typed headers
+query II
+SELECT
+    AVG(content_length) as avg_size,
+    MAX(age) as max_age
+FROM read_httpd_log(
+    'test/data/directives/typed_headers_mixed.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Max-Forwards}i %{Age}o'
+)
+WHERE content_length IS NOT NULL;
+----
+512	3600
+
+# Test 23: Filtering on typed headers
+query I
+SELECT COUNT(*)
+FROM read_httpd_log(
+    'test/data/directives/typed_headers_mixed.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Max-Forwards}i %{Age}o'
+)
+WHERE content_length > 500 AND age >= 3600;
+----
+1
+
+# Test 24: ORDER BY on typed headers
+query I
+SELECT content_length
+FROM read_httpd_log(
+    'test/data/directives/typed_headers_mixed.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Max-Forwards}i %{Age}o'
+)
+ORDER BY content_length DESC
+LIMIT 1;
+----
+1024
+
+# Test 25: raw mode works with typed headers
+query II
+SELECT content_length, parse_error::INTEGER
+FROM read_httpd_log(
+    'test/data/directives/typed_headers.log',
+    format_str='%h %l %u %t "%r" %>s %{Content-Length}o %{Age}o',
+    raw=true
+)
+WHERE client_ip = '192.168.1.1';
+----
+2326	0

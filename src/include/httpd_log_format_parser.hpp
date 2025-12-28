@@ -63,7 +63,7 @@ public:
 	static string GetColumnName(const string &directive, const string &modifier = "");
 
 	// Get the data type for a given directive
-	static LogicalType GetDataType(const string &directive);
+	static LogicalType GetDataType(const string &directive, const string &modifier = "");
 
 	// Generate a regex pattern from the format string
 	static string GenerateRegexPattern(const ParsedFormat &parsed_format);

@@ -282,8 +282,8 @@ When using custom formats with the `format_str` parameter, the following Apache 
 | `%m` | Request method | `method` | VARCHAR | GET, POST, etc. |
 | `%U` | URL path | `path` | VARCHAR | Without query string |
 | `%H` | Request protocol | `protocol` | VARCHAR | HTTP/1.0, HTTP/1.1, etc. |
-| `%{Header}i` | Request header | `header_name` | VARCHAR | Lowercase header name |
-| `%{Header}o` | Response header | `header_name` | VARCHAR | Lowercase header name |
+| `%{Header}i` | Request header | `header_name` | VARCHAR or INTEGER/BIGINT | See Typed Headers below |
+| `%{Header}o` | Response header | `header_name` | VARCHAR or INTEGER/BIGINT | See Typed Headers below |
 | `%v` | Canonical server name | `server_name` | VARCHAR | From ServerName |
 | `%V` | Server name (UseCanonicalName) | `server_name` | VARCHAR | Requested hostname |
 | `%p` | Canonical server port | `server_port` | INTEGER | From Listen directive |
@@ -297,6 +297,58 @@ When using custom formats with the `format_str` parameter, the following Apache 
 - **`%r` (request line)**: Always splits into three columns: `method`, `path`, and `protocol`
 - **`%b` vs `%B`**: Both map to `bytes` column; `%b` treats "-" as 0, `%B` uses actual byte count
 - **`%{Header}i/o`**: The column name is derived from the header name, converted to lowercase with underscores replacing hyphens. Example: `%{User-Agent}i` → `user_agent`
+
+### Typed HTTP Headers
+
+Specific HTTP headers are automatically typed as INTEGER or BIGINT instead of VARCHAR for better performance and type safety:
+
+| Header Name | Request (%i) | Response (%o) | Type | Description |
+|-------------|--------------|---------------|------|-------------|
+| `Content-Length` | BIGINT | BIGINT | BIGINT | Response/request body size in bytes |
+| `Age` | VARCHAR | INTEGER | INTEGER | Cache age in seconds (response only) |
+| `Max-Forwards` | INTEGER | VARCHAR | INTEGER | Proxy hop limit (request only) |
+
+**Features:**
+- **Case-insensitive matching**: `Content-Length`, `content-length`, and `CONTENT-LENGTH` all work
+- **NULL handling**: Missing headers or "-" values → NULL
+- **Invalid values**: Non-numeric values → NULL (no parse errors)
+- **Performance**: Enables numeric operations like filtering, aggregations, and sorting
+
+**Examples:**
+
+```sql
+-- Numeric filtering on Content-Length
+SELECT * FROM read_httpd_log(
+    'access.log',
+    format_str='%h %t "%r" %>s %{Content-Length}o'
+)
+WHERE content_length > 1000000;  -- Find large responses
+
+-- Aggregations on typed headers
+SELECT
+    AVG(content_length) as avg_size,
+    MAX(age) as max_cache_age
+FROM read_httpd_log(
+    'access.log',
+    format_str='%h %t "%r" %>s %{Content-Length}o %{Age}o'
+);
+
+-- Filtering by cache age
+SELECT * FROM read_httpd_log(
+    'access.log',
+    format_str='%h %t "%r" %>s %{Age}o'
+)
+WHERE age >= 3600;  -- Cached for at least 1 hour
+
+-- Max-Forwards for proxy debugging
+SELECT * FROM read_httpd_log(
+    'access.log',
+    format_str='%h %t "%r" %>s %{Max-Forwards}i'
+)
+WHERE max_forwards < 10;  -- Low proxy hop limit
+```
+
+**Note**: All other headers (e.g., `User-Agent`, `Referer`) remain VARCHAR type.
 
 ### Custom Format Example
 

@@ -69,9 +69,31 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 	return "field_" + col_name;
 }
 
-LogicalType HttpdLogFormatParser::GetDataType(const string &directive) {
-	// Special case for headers - always VARCHAR
+LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const string &modifier) {
+	// Special case for headers with typed support
 	if (directive == "%i" || directive == "%o") {
+		if (!modifier.empty()) {
+			// Normalize header name to lowercase for case-insensitive comparison
+			string header_lower = modifier;
+			std::transform(header_lower.begin(), header_lower.end(), header_lower.begin(), ::tolower);
+
+			// Content-Length (request & response) → BIGINT
+			if (header_lower == "content-length") {
+				return LogicalType::BIGINT;
+			}
+
+			// Age (response only) → INTEGER
+			if (header_lower == "age" && directive == "%o") {
+				return LogicalType::INTEGER;
+			}
+
+			// Max-Forwards (request only) → INTEGER
+			if (header_lower == "max-forwards" && directive == "%i") {
+				return LogicalType::INTEGER;
+			}
+		}
+
+		// Default: VARCHAR for all other headers
 		return LogicalType::VARCHAR;
 	}
 
@@ -136,7 +158,7 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 
 			// Get column name and type for this directive
 			string column_name = GetColumnName(directive, modifier);
-			LogicalType type = GetDataType(directive);
+			LogicalType type = GetDataType(directive, modifier);
 
 			// Add field
 			result.fields.emplace_back(directive, column_name, type, in_quotes, modifier);
