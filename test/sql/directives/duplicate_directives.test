@@ -84,7 +84,7 @@ FROM (
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
-        'test/data/directives/bytes_b_only.log',
+        'test/data/directives/bytes_with_dash.log',
         format_str='%h %t "%r" %>s %b'
     )
 )
@@ -96,7 +96,7 @@ WHERE column_name = 'bytes';
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
-        'test/data/directives/bytes_B_only.log',
+        'test/data/directives/bytes_with_zero.log',
         format_str='%h %t "%r" %>s %B'
     )
 )
@@ -104,19 +104,21 @@ WHERE column_name = 'bytes';
 ----
 1
 
-# Test 9: Both %b and %B - %B takes precedence, %b is skipped
-query I
-SELECT COUNT(*) FROM (
+# Test 9: Both %b and %B - both are present with distinct column names
+query II
+SELECT
+    COUNT(*) FILTER (WHERE column_name = 'bytes_clf') as has_bytes_clf,
+    COUNT(*) FILTER (WHERE column_name = 'bytes') as has_bytes
+FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
         'test/data/directives/bytes_both.log',
         format_str='%h %t "%r" %>s %b %B'
     )
-)
-WHERE column_name = 'bytes';
+);
 ----
-1
+1	1
 
-# Test 10: Verify %b is NOT present when both %b and %B exist
+# Test 10: Verify both columns are present (bytes_clf and bytes)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
@@ -126,7 +128,7 @@ SELECT COUNT(*) FROM (
 )
 WHERE column_name LIKE 'bytes%';
 ----
-1
+2
 
 # Test 11: All three pairs together - complex scenario
 query III

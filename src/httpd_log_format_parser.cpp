@@ -493,15 +493,25 @@ void HttpdLogFormatParser::ResolveDuplicateDirectives(ParsedFormat &parsed_forma
 			}
 		}
 
-		// === Bytes resolution (merge mode) ===
+		// === Bytes resolution (distinct columns mode) ===
+		// %b and %B have different semantics:
+		// - %b: CLF format (0 bytes → "-")
+		// - %B: Always numeric (0 bytes → "0")
+		// Both should be displayed if present
 		else if (field.directive == "%B") {
-			field.column_name = "bytes"; // %B preferred
+			if (has_b) {
+				// Both present: %B → "bytes", %b → "bytes_clf"
+				field.column_name = "bytes";
+			} else {
+				// %B only: use standard name "bytes"
+				field.column_name = "bytes";
+			}
 		} else if (field.directive == "%b") {
 			if (has_B) {
-				// Both present: skip %b (merge into %B)
-				field.should_skip = true;
+				// Both present: %b → "bytes_clf", %B → "bytes"
+				field.column_name = "bytes_clf";
 			} else {
-				// %b only: use standard name
+				// %b only: use standard name "bytes"
 				field.column_name = "bytes";
 			}
 		}
