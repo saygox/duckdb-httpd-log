@@ -196,7 +196,7 @@ SELECT
     COUNT(*) FILTER (WHERE parse_error = true) as invalid
 FROM read_httpd_log('test/data/**/*.log', raw=true);
 ----
-41	65
+41	69
 
 # Test 24: Timestamp range across multiple files
 query I

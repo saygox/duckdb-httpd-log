@@ -1,0 +1,71 @@
+# name: test/sql/directives/handler.test
+# description: Tests for handler directive (%R)
+# group: [directives]
+
+require httpd_log
+
+# Test 1: %R handler - column exists with VARCHAR type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/handler.log',
+        format_str='%h %R'
+    )
+)
+WHERE column_name = 'handler';
+----
+handler	VARCHAR
+
+# Test 2: Extract handler values
+query T
+SELECT handler
+FROM read_httpd_log(
+    'test/data/directives/handler.log',
+    format_str='%h %R'
+)
+ORDER BY handler;
+----
+-
+cgi-script
+default-handler
+php-script
+
+# Test 3: Filter by handler
+query TT
+SELECT client_ip, handler
+FROM read_httpd_log(
+    'test/data/directives/handler.log',
+    format_str='%h %R'
+)
+WHERE handler = 'cgi-script';
+----
+192.168.1.2	cgi-script
+
+# Test 4: Count by handler type
+query TI
+SELECT handler, COUNT(*) as count
+FROM read_httpd_log(
+    'test/data/directives/handler.log',
+    format_str='%h %R'
+)
+GROUP BY handler
+ORDER BY handler;
+----
+-	1
+cgi-script	1
+default-handler	1
+php-script	1
+
+# Test 5: All columns present - 3 columns total (client_ip, handler, log_file)
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/handler.log',
+        format_str='%h %R'
+    )
+);
+----
+3
+

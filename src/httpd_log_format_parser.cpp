@@ -52,9 +52,10 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%O", "bytes_sent", LogicalTypeId::BIGINT},
     {"%S", "bytes_transferred", LogicalTypeId::BIGINT},
 
-    // Filename and request log ID
+    // Filename, request log ID, and handler
     {"%f", "filename", LogicalTypeId::VARCHAR},
     {"%L", "request_log_id", LogicalTypeId::VARCHAR},
+    {"%R", "handler", LogicalTypeId::VARCHAR},
 
     // Header directives (dynamic column name, collision with each other)
     {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers

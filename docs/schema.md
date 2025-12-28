@@ -68,6 +68,7 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `{trailer_name}` | VARCHAR | `%{Name}^to` | ✓ | ✓ | Response trailer line |
 | `filename` | VARCHAR | `%f` | ✓ | ✓ | Requested file path |
 | `request_log_id` | VARCHAR | `%L` | ✓ | ✓ | Request log ID from error log |
+| `handler` | VARCHAR | `%R` | ✓ | ✓ | Response handler name |
 | `log_file` | VARCHAR | (auto) | ✓ | ✓ | Source log file path (always included) |
 | `parse_error` | BOOLEAN | (auto) | ✗ | ✓ | Whether parsing failed |
 | `raw_line` | VARCHAR | (auto) | ✗ | ✓ | Original log line (only for parse errors) |
