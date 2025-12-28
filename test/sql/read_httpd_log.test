@@ -5,7 +5,8 @@
 require httpd_log
 
 # Test 1: Basic usage without format_type parameter (should default to 'common')
-query TTTTIIT
+# Note: Default raw=false, so parse_error and raw_line columns are not included
+query TTTTIII
 SELECT
     client_ip,
     ident,
@@ -13,121 +14,84 @@ SELECT
     timestamp,
     status,
     bytes,
-    parse_error
+    filename
 FROM read_httpd_log('test/data/sample.log')
-WHERE parse_error = false
 ORDER BY timestamp
 LIMIT 3;
 ----
-192.168.1.1	-	frank	2000-10-10 20:55:36	200	2326	0
-192.168.1.2	-	alice	2000-10-10 20:56:45	201	150	0
-192.168.1.3	-	-	2000-10-10 20:57:12	304	0	0
+192.168.1.1	-	frank	2000-10-10 20:55:36	200	2326	test/data/sample.log
+192.168.1.2	-	alice	2000-10-10 20:56:45	201	150	test/data/sample.log
+192.168.1.3	-	-	2000-10-10 20:57:12	304	0	test/data/sample.log
 
-# Test 2: Using named format_type parameter with 'common' (positional not supported for named params)
-query TTTTIIT
-SELECT
-    client_ip,
-    ident,
-    auth_user,
-    timestamp,
-    status,
-    bytes,
-    parse_error
-FROM read_httpd_log('test/data/sample.log', format_type='common')
-WHERE parse_error = false
-ORDER BY timestamp
-LIMIT 3;
-----
-192.168.1.1	-	frank	2000-10-10 20:55:36	200	2326	0
-192.168.1.2	-	alice	2000-10-10 20:56:45	201	150	0
-192.168.1.3	-	-	2000-10-10 20:57:12	304	0	0
-
-# Test 3: Using named format_type parameter with 'common'
-query TTTTIIT
-SELECT
-    client_ip,
-    ident,
-    auth_user,
-    timestamp,
-    status,
-    bytes,
-    parse_error
-FROM read_httpd_log('test/data/sample.log', format_type='common')
-WHERE parse_error = false
-ORDER BY timestamp
-LIMIT 3;
-----
-192.168.1.1	-	frank	2000-10-10 20:55:36	200	2326	0
-192.168.1.2	-	alice	2000-10-10 20:56:45	201	150	0
-192.168.1.3	-	-	2000-10-10 20:57:12	304	0	0
-
-# Test 4: Verify default and explicit 'common' produce identical results
+# Test 2: Verify schema without raw mode (10 columns: no timestamp_raw, parse_error, raw_line)
 query I
 SELECT COUNT(*) FROM (
-    SELECT * FROM read_httpd_log('test/data/sample.log')
-    EXCEPT
-    SELECT * FROM read_httpd_log('test/data/sample.log', format_type='common')
+    DESCRIBE SELECT * FROM read_httpd_log('test/data/sample.log')
 );
 ----
-0
+10
 
-# Test 5: Verify named parameter produces identical results
+# Test 3: Verify schema with raw mode (13 columns: includes timestamp_raw, parse_error, raw_line)
 query I
 SELECT COUNT(*) FROM (
-    SELECT * FROM read_httpd_log('test/data/sample.log')
-    EXCEPT
-    SELECT * FROM read_httpd_log('test/data/sample.log', format_type='common')
+    DESCRIBE SELECT * FROM read_httpd_log('test/data/sample.log', raw=true)
 );
 ----
-0
+13
 
-# Test 6: Test with error lines - default parameter
-query II
-SELECT
-    parse_error,
-    COUNT(*) as count
-FROM read_httpd_log('test/data/with_errors.log')
-GROUP BY parse_error
-ORDER BY parse_error;
-----
-0	3
-1	2
-
-# Test 7: Test with error lines - explicit format_type
-query II
-SELECT
-    parse_error,
-    COUNT(*) as count
-FROM read_httpd_log('test/data/with_errors.log', format_type='common')
-GROUP BY parse_error
-ORDER BY parse_error;
-----
-0	3
-1	2
-
-# Test 8: Verify raw_line is populated for parse errors
+# Test 4: Verify raw=false skips parse error rows
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/with_errors.log')
+FROM read_httpd_log('test/data/with_errors.log');
+----
+3
+
+# Test 5: Verify raw=true includes parse error rows
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test/data/with_errors.log', raw=true);
+----
+5
+
+# Test 6: Test with error lines - raw=true shows parse_error column
+query II
+SELECT
+    parse_error,
+    COUNT(*) as count
+FROM read_httpd_log('test/data/with_errors.log', raw=true)
+GROUP BY parse_error
+ORDER BY parse_error;
+----
+0	3
+1	2
+
+# Test 7: Verify parse_error column does not exist with raw=false
+statement error
+SELECT parse_error FROM read_httpd_log('test/data/with_errors.log');
+----
+Catalog Error: Table Function with name "read_httpd_log" does not have a column named "parse_error"
+
+# Test 8: Verify raw_line is populated for parse errors with raw=true
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test/data/with_errors.log', raw=true)
 WHERE parse_error = true AND raw_line IS NOT NULL AND LENGTH(raw_line) > 0;
 ----
 2
 
-# Test 9: Test with glob pattern - default parameter
-query I
-SELECT COUNT(DISTINCT filename)
-FROM read_httpd_log('test/data/server*.log');
+# Test 9: Verify raw_line column does not exist with raw=false
+statement error
+SELECT raw_line FROM read_httpd_log('test/data/with_errors.log');
 ----
-2
+Catalog Error: Table Function with name "read_httpd_log" does not have a column named "raw_line"
 
-# Test 10: Test with glob pattern - explicit format_type
-query I
-SELECT COUNT(DISTINCT filename)
-FROM read_httpd_log('test/data/server*.log', format_type='common');
+# Test 10: Verify timestamp_raw column does not exist with raw=false
+statement error
+SELECT timestamp_raw FROM read_httpd_log('test/data/sample.log');
 ----
-2
+Catalog Error: Table Function with name "read_httpd_log" does not have a column named "timestamp_raw"
 
-# Test 11: Verify all 13 columns are returned
+# Test 11: Verify all 13 columns are returned with raw=true
 query I
 SELECT COUNT(*) FROM (
     SELECT
@@ -144,38 +108,35 @@ SELECT COUNT(*) FROM (
         filename,
         parse_error,
         raw_line
-    FROM read_httpd_log('test/data/sample.log')
+    FROM read_httpd_log('test/data/sample.log', raw=true)
 );
 ----
 6
 
-# Test 12: Test HTTP method extraction - default parameter
+# Test 12: Test HTTP method extraction with raw=false (no WHERE needed)
 query TI
 SELECT method, COUNT(*) as count
 FROM read_httpd_log('test/data/sample.log')
-WHERE parse_error = false
 GROUP BY method
 ORDER BY method;
 ----
 GET	5
 POST	1
 
-# Test 13: Test HTTP method extraction - explicit format_type
-query TI
-SELECT method, COUNT(*) as count
-FROM read_httpd_log('test/data/sample.log', format_type='common')
+# Test 13: Verify timestamp_raw is populated with raw=true
+query T
+SELECT timestamp_raw
+FROM read_httpd_log('test/data/sample.log', raw=true)
 WHERE parse_error = false
-GROUP BY method
-ORDER BY method;
+ORDER BY timestamp
+LIMIT 1;
 ----
-GET	5
-POST	1
+10/Oct/2000:13:55:36 -0700
 
-# Test 14: Test status codes
+# Test 14: Test status codes with raw=false (auto-skips errors)
 query II
 SELECT status, COUNT(*) as count
 FROM read_httpd_log('test/data/sample.log')
-WHERE parse_error = false
 GROUP BY status
 ORDER BY status;
 ----
@@ -185,11 +146,11 @@ ORDER BY status;
 403	1
 404	1
 
-# Test 15: Test path extraction
+# Test 15: Test path extraction with raw=false
 query TI
 SELECT path, COUNT(*) as count
 FROM read_httpd_log('test/data/sample.log')
-WHERE parse_error = false AND path LIKE '/index%'
+WHERE path LIKE '/index%'
 GROUP BY path;
 ----
 /index.html	1
@@ -206,27 +167,90 @@ SELECT * FROM read_httpd_log('test/data/sample.log', 'common', 'extra');
 ----
 Binder Error: No function matches the given name and argument types
 
-# Test 18: Verify timestamp parsing works correctly
-query T
-SELECT timestamp_raw
-FROM read_httpd_log('test/data/sample.log')
-WHERE parse_error = false
-ORDER BY timestamp
-LIMIT 1;
+# Test 18: Test with glob pattern
+query I
+SELECT COUNT(DISTINCT filename)
+FROM read_httpd_log('test/data/server*.log');
 ----
-10/Oct/2000:13:55:36 -0700
+2
 
-# Test 19: Test bytes field
+# Test 19: Test bytes field with raw=false
 query I
 SELECT SUM(bytes)
-FROM read_httpd_log('test/data/sample.log')
-WHERE parse_error = false;
+FROM read_httpd_log('test/data/sample.log');
 ----
 9900
 
-# Test 20: Count total records across all test files
+# Test 20: Count total records across all test files (raw=false skips errors)
 query I
 SELECT COUNT(*)
 FROM read_httpd_log('test/data/*.log');
 ----
+24
+
+# Test 21: Count total records with raw=true (includes errors)
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test/data/*.log', raw=true);
+----
 26
+
+# Test 22: Verify column names with raw=false (should be 10 columns)
+query TTTTTTTTTT
+SELECT
+    client_ip,
+    ident,
+    auth_user,
+    timestamp,
+    method,
+    path,
+    protocol,
+    status,
+    bytes,
+    filename
+FROM read_httpd_log('test/data/sample.log')
+LIMIT 1;
+----
+192.168.1.1	-	frank	2000-10-10 20:55:36	GET	/apache_pb.gif	HTTP/1.0	200	2326	test/data/sample.log
+
+# Test 23: Verify column names with raw=true (should be 13 columns)
+query TTTTTTTTTTTIT
+SELECT
+    client_ip,
+    ident,
+    auth_user,
+    timestamp,
+    timestamp_raw,
+    method,
+    path,
+    protocol,
+    status,
+    bytes,
+    filename,
+    parse_error,
+    raw_line
+FROM read_httpd_log('test/data/sample.log', raw=true)
+LIMIT 1;
+----
+192.168.1.1	-	frank	2000-10-10 20:55:36	10/Oct/2000:13:55:36 -0700	GET	/apache_pb.gif	HTTP/1.0	200	2326	test/data/sample.log	0	NULL
+
+# Test 24: Verify raw_line is NULL for successful parses with raw=true
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test/data/sample.log', raw=true)
+WHERE parse_error = false AND raw_line IS NULL;
+----
+6
+
+# Test 25: Verify both raw=true and format_type work together
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test/data/sample.log', format_type='common', raw=true);
+----
+6
+
+# Test 26: Verify error message when trying to access diagnostic columns without raw=true
+statement error
+SELECT parse_error, raw_line FROM read_httpd_log('test/data/sample.log');
+----
+Catalog Error: Table Function with name "read_httpd_log" does not have a column named "parse_error"
