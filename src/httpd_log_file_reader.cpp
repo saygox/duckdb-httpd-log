@@ -314,44 +314,13 @@ HttpdLogFileReader::HttpdLogFileReader(ClientContext &context, OpenFileInfo file
 	buffered_reader = make_uniq<HttpdLogBufferedReader>(fs, file.path);
 
 	// Populate the columns vector (required for MultiFileReader schema matching)
-	// This mirrors the logic in HttpdLogFormatParser::GenerateSchema
-	const auto &parsed_format = bind_data.parsed_format;
-	bool raw_mode = bind_data.raw_mode;
+	// Use GenerateSchema to get schema, then convert to MultiFileColumnDefinition
+	vector<string> names;
+	vector<LogicalType> types;
+	HttpdLogFormatParser::GenerateSchema(bind_data.parsed_format, names, types, bind_data.raw_mode);
 
-	for (const auto &field : parsed_format.fields) {
-		if (field.should_skip) {
-			continue;
-		}
-
-		if (field.directive == "%t") {
-			columns.emplace_back("timestamp", LogicalType::TIMESTAMP);
-			if (raw_mode) {
-				columns.emplace_back("timestamp_raw", LogicalType::VARCHAR);
-			}
-		} else if (field.directive == "%r" || field.directive == "%>r" || field.directive == "%<r") {
-			if (!field.skip_method) {
-				columns.emplace_back("method", LogicalType::VARCHAR);
-			}
-			if (!field.skip_path) {
-				columns.emplace_back("path", LogicalType::VARCHAR);
-			}
-			if (!field.skip_query_string) {
-				columns.emplace_back("query_string", LogicalType::VARCHAR);
-			}
-			if (!field.skip_protocol) {
-				columns.emplace_back("protocol", LogicalType::VARCHAR);
-			}
-		} else {
-			columns.emplace_back(field.column_name, field.type);
-		}
-	}
-
-	// Add standard metadata columns
-	columns.emplace_back("log_file", LogicalType::VARCHAR);
-
-	if (raw_mode) {
-		columns.emplace_back("parse_error", LogicalType::BOOLEAN);
-		columns.emplace_back("raw_line", LogicalType::VARCHAR);
+	for (idx_t i = 0; i < names.size(); i++) {
+		columns.emplace_back(names[i], types[i]);
 	}
 }
 
