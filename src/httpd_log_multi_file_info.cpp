@@ -92,8 +92,9 @@ void HttpdLogMultiFileInfo::BindReader(ClientContext &context, vector<LogicalTyp
 optional_idx HttpdLogMultiFileInfo::MaxThreads(const MultiFileBindData &bind_data_p,
                                                const MultiFileGlobalState &global_state,
                                                FileExpandResult expand_result) {
-	// Single-threaded for now (like read_file)
-	return 1;
+	// httpd_log has no intra-file parallelism (line-based format)
+	// Max threads = number of files (one file per thread)
+	return bind_data_p.file_list->GetTotalFileCount();
 }
 
 unique_ptr<GlobalTableFunctionState> HttpdLogMultiFileInfo::InitializeGlobalState(ClientContext &context,

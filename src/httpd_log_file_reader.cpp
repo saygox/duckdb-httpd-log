@@ -357,8 +357,13 @@ HttpdLogFileReader::HttpdLogFileReader(ClientContext &context, OpenFileInfo file
 
 bool HttpdLogFileReader::TryInitializeScan(ClientContext &context, GlobalTableFunctionState &gstate,
                                            LocalTableFunctionState &lstate) {
-	// Return false if we've finished reading this file
-	return !finished;
+	// httpd_log has no intra-file parallelism (unlike Parquet row groups)
+	// TryInitializeScan should return true only once per file
+	if (scan_initialized || finished) {
+		return false;
+	}
+	scan_initialized = true;
+	return true;
 }
 
 void HttpdLogFileReader::Scan(ClientContext &context, GlobalTableFunctionState &global_state,

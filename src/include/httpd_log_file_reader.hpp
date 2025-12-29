@@ -25,6 +25,9 @@ public:
 	//! Buffered reader for the file
 	unique_ptr<HttpdLogBufferedReader> buffered_reader;
 
+	//! Whether scan has been initialized (TryInitializeScan returned true)
+	bool scan_initialized = false;
+
 	//! Whether we have finished reading this file
 	bool finished = false;
 
