@@ -22,11 +22,18 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%r", "request", LogicalTypeId::VARCHAR},
     {"%m", "method", LogicalTypeId::VARCHAR},
     {"%U", "path", LogicalTypeId::VARCHAR},
+    {"%q", "query_string", LogicalTypeId::VARCHAR},
     {"%H", "protocol", LogicalTypeId::VARCHAR},
     {"%p", "server_port", LogicalTypeId::INTEGER},
+    {"%k", "keepalive_count", LogicalTypeId::INTEGER},
+    {"%X", "connection_status", LogicalTypeId::VARCHAR},
+    // Process/Thread ID directives - collision handled specially
+    // %P and %{pid}P both produce process_id, %P takes priority
     {"%P", "process_id", LogicalTypeId::INTEGER},
-    {"%D", "time_us", LogicalTypeId::BIGINT},
-    {"%T", "time_sec", LogicalTypeId::BIGINT},
+    // Duration directives - collision handled specially by GetDurationPriority()
+    // When multiple duration directives exist, only highest precision is kept
+    {"%D", "duration", LogicalTypeId::INTERVAL}, // Microseconds
+    {"%T", "duration", LogicalTypeId::INTERVAL}, // Seconds (or with modifier: ms, us, s)
 
     // Status code directives (collision pair)
     {"%>s", "status", LogicalTypeId::INTEGER, "", 0},         // Final status gets base name
@@ -40,9 +47,28 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%B", "bytes", LogicalTypeId::BIGINT, "", 0},     // Numeric bytes gets base name
     {"%b", "bytes", LogicalTypeId::BIGINT, "_clf", 1}, // CLF format gets suffix
 
+    // mod_logio byte counting directives (separate from %b/%B)
+    {"%I", "bytes_received", LogicalTypeId::BIGINT},
+    {"%O", "bytes_sent", LogicalTypeId::BIGINT},
+    {"%S", "bytes_transferred", LogicalTypeId::BIGINT},
+
+    // Filename, request log ID, and handler
+    {"%f", "filename", LogicalTypeId::VARCHAR},
+    {"%L", "request_log_id", LogicalTypeId::VARCHAR},
+    {"%R", "handler", LogicalTypeId::VARCHAR},
+
     // Header directives (dynamic column name, collision with each other)
     {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers
     {"%o", "", LogicalTypeId::VARCHAR, "_out", 1}, // Response headers
+
+    // Cookie, Environment, Note directives (dynamic column name)
+    {"%C", "", LogicalTypeId::VARCHAR, "_cookie", 2},
+    {"%e", "", LogicalTypeId::VARCHAR, "_env", 2},
+    {"%n", "", LogicalTypeId::VARCHAR, "_note", 2},
+
+    // Trailer directives (dynamic column name)
+    {"%^ti", "", LogicalTypeId::VARCHAR, "_trail_in", 2},
+    {"%^to", "", LogicalTypeId::VARCHAR, "_trail_out", 2},
 };
 
 // Typed header rules - maps header names to specific types with direction constraints
@@ -57,6 +83,119 @@ const std::vector<TypedHeaderRule> HttpdLogFormatParser::typed_header_rules = {
 std::unordered_map<string, const DirectiveDefinition *> HttpdLogFormatParser::directive_cache;
 std::unordered_map<string, const TypedHeaderRule *> HttpdLogFormatParser::header_cache;
 bool HttpdLogFormatParser::cache_initialized = false;
+
+// Convert strftime format specifier to regex pattern
+static string StrftimeToRegex(const string &format) {
+	string regex;
+	size_t i = 0;
+	while (i < format.length()) {
+		if (format[i] == '%' && i + 1 < format.length()) {
+			char next = format[i + 1];
+			string spec;
+
+			// Check for %- prefix (non-padded)
+			if (next == '-' && i + 2 < format.length()) {
+				spec = format.substr(i, 3);
+				i += 3;
+			} else {
+				spec = format.substr(i, 2);
+				i += 2;
+			}
+
+			// Map strftime specifiers to regex patterns
+			if (spec == "%Y") {
+				regex += "\\d{4}"; // Year with century
+			} else if (spec == "%y") {
+				regex += "\\d{2}"; // Year without century
+			} else if (spec == "%m") {
+				regex += "\\d{2}"; // Month 01-12
+			} else if (spec == "%-m") {
+				regex += "\\d{1,2}"; // Month 1-12
+			} else if (spec == "%d") {
+				regex += "\\d{2}"; // Day 01-31
+			} else if (spec == "%-d") {
+				regex += "\\d{1,2}"; // Day 1-31
+			} else if (spec == "%e") {
+				regex += "[\\s\\d]\\d"; // Day with space padding
+			} else if (spec == "%b" || spec == "%h") {
+				regex += "[A-Za-z]{3}"; // Abbreviated month name
+			} else if (spec == "%B") {
+				regex += "[A-Za-z]+"; // Full month name
+			} else if (spec == "%H") {
+				regex += "\\d{2}"; // Hour 00-23
+			} else if (spec == "%-H") {
+				regex += "\\d{1,2}"; // Hour 0-23
+			} else if (spec == "%I") {
+				regex += "\\d{2}"; // Hour 01-12
+			} else if (spec == "%-I") {
+				regex += "\\d{1,2}"; // Hour 1-12
+			} else if (spec == "%M") {
+				regex += "\\d{2}"; // Minute 00-59
+			} else if (spec == "%S") {
+				regex += "\\d{2}"; // Second 00-59
+			} else if (spec == "%f") {
+				regex += "\\d{6}"; // Microseconds
+			} else if (spec == "%z") {
+				regex += "[+-]\\d{4}"; // UTC offset +HHMM
+			} else if (spec == "%Z") {
+				regex += "[A-Za-z/_]+"; // Time zone name
+			} else if (spec == "%T") {
+				regex += "\\d{2}:\\d{2}:\\d{2}"; // %H:%M:%S
+			} else if (spec == "%R") {
+				regex += "\\d{2}:\\d{2}"; // %H:%M
+			} else if (spec == "%j") {
+				regex += "\\d{3}"; // Day of year
+			} else if (spec == "%a") {
+				regex += "[A-Za-z]{3}"; // Abbreviated weekday
+			} else if (spec == "%A") {
+				regex += "[A-Za-z]+"; // Full weekday
+			} else if (spec == "%p" || spec == "%P") {
+				regex += "[AaPp][Mm]"; // AM/PM
+			} else if (spec == "%n") {
+				regex += "\\n"; // Newline
+			} else if (spec == "%t") {
+				regex += "\\t"; // Tab
+			} else if (spec == "%%") {
+				regex += "%"; // Literal %
+			} else {
+				// Unknown specifier - match any non-whitespace
+				regex += "\\S+";
+			}
+		} else {
+			// Literal character - escape regex metacharacters
+			char c = format[i];
+			if (c == '.' || c == '*' || c == '+' || c == '?' || c == '^' || c == '$' || c == '(' || c == ')' ||
+			    c == '[' || c == ']' || c == '{' || c == '}' || c == '|' || c == '\\') {
+				regex += '\\';
+			}
+			regex += c;
+			i++;
+		}
+	}
+	return regex;
+}
+
+// Get priority for duration directives (lower = higher priority)
+// Returns -1 for non-duration directives
+// Priority order: %D (0) > %{us}T (1) > %{ms}T (2) > %T (3) > %{s}T (4)
+static int GetDurationPriority(const string &directive, const string &modifier) {
+	if (directive == "%D") {
+		return 0; // microseconds (highest priority)
+	}
+	if (directive == "%T") {
+		if (modifier == "us") {
+			return 1; // microseconds
+		}
+		if (modifier == "ms") {
+			return 2; // milliseconds
+		}
+		if (modifier == "s") {
+			return 4; // seconds (lowest)
+		}
+		return 3; // %T without modifier = seconds (prefer over %{s}T)
+	}
+	return -1; // Not a duration directive
+}
 
 // Initialize lookup caches from static vectors
 void HttpdLogFormatParser::InitializeCaches() {
@@ -101,10 +240,14 @@ LogicalTypeId HttpdLogFormatParser::GetTypedHeaderType(const string &header_name
 }
 
 string HttpdLogFormatParser::GetColumnName(const string &directive, const string &modifier) {
-	// Handle special case for %{...}i and %{...}o (request/response headers)
-	if (directive == "%i" || directive == "%o") {
+	// Handle special case for directives with dynamic column names from modifier:
+	// %{...}i (request headers), %{...}o (response headers),
+	// %{...}C (cookies), %{...}e (env vars), %{...}n (notes),
+	// %{...}^ti (request trailers), %{...}^to (response trailers)
+	if (directive == "%i" || directive == "%o" || directive == "%C" || directive == "%e" || directive == "%n" ||
+	    directive == "%^ti" || directive == "%^to") {
 		if (!modifier.empty()) {
-			// Convert header name to lowercase column name
+			// Convert modifier to lowercase column name
 			string col_name = modifier;
 			std::transform(col_name.begin(), col_name.end(), col_name.begin(), ::tolower);
 
@@ -123,6 +266,34 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 	// Handle %{c}h - underlying TCP connection hostname (not modified by mod_remoteip)
 	if (directive == "%h" && modifier == "c") {
 		return "peer_host";
+	}
+
+	// Handle %{UNIT}T - time taken with unit (ms, us, s)
+	// All variants produce "duration" column name (same as %D and %T)
+	if (directive == "%T" && (modifier == "ms" || modifier == "us" || modifier == "s")) {
+		return "duration";
+	}
+
+	// Handle %{format}P - process/thread ID variants
+	if (directive == "%P") {
+		if (modifier == "pid" || modifier.empty()) {
+			return "process_id";
+		} else if (modifier == "tid") {
+			return "thread_id";
+		} else if (modifier == "hextid") {
+			return "thread_id_hex";
+		}
+	}
+
+	// Handle %{format}p - port variants
+	if (directive == "%p") {
+		if (modifier == "canonical" || modifier.empty()) {
+			return "server_port";
+		} else if (modifier == "local") {
+			return "local_port";
+		} else if (modifier == "remote") {
+			return "remote_port";
+		}
 	}
 
 	// Look up directive definition
@@ -152,6 +323,33 @@ LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const str
 
 		// Default: VARCHAR for all other headers
 		return LogicalType::VARCHAR;
+	}
+
+	// Cookie, Environment, Note, and Trailer directives - always VARCHAR
+	if (directive == "%C" || directive == "%e" || directive == "%n" || directive == "%^ti" || directive == "%^to") {
+		return LogicalType::VARCHAR;
+	}
+
+	// Handle %{UNIT}T - time taken with unit (ms, us, s)
+	// All variants return INTERVAL type
+	if (directive == "%T" && (modifier == "ms" || modifier == "us" || modifier == "s")) {
+		return LogicalType::INTERVAL;
+	}
+
+	// Handle %{format}P - process/thread ID variants
+	if (directive == "%P") {
+		if (modifier == "pid" || modifier.empty()) {
+			return LogicalType::INTEGER;
+		} else if (modifier == "tid") {
+			return LogicalType::BIGINT; // Thread IDs can be large
+		} else if (modifier == "hextid") {
+			return LogicalType::VARCHAR; // Hex format
+		}
+	}
+
+	// Handle %{format}p - port variants (all INTEGER)
+	if (directive == "%p" && (modifier == "canonical" || modifier == "local" || modifier == "remote")) {
+		return LogicalType::INTEGER;
 	}
 
 	// Look up directive definition
@@ -186,15 +384,22 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 			string modifier;
 			size_t start_pos = pos;
 
-			// Check for modifiers like %{...}i or %{...}o
+			// Check for modifiers like %{...}i, %{...}o, %{...}^ti, %{...}^to, %{...}t
 			if (pos + 1 < format_str.length() && format_str[pos + 1] == '{') {
 				// Find the closing }
 				size_t close_pos = format_str.find('}', pos + 2);
 				if (close_pos != string::npos && close_pos + 1 < format_str.length()) {
 					modifier = format_str.substr(pos + 2, close_pos - pos - 2);
-					char type_char = format_str[close_pos + 1];
-					directive = "%" + string(1, type_char);
-					pos = close_pos + 2;
+					// Check for ^ti or ^to trailer directives
+					if (format_str[close_pos + 1] == '^' && close_pos + 3 < format_str.length()) {
+						directive = "%" + format_str.substr(close_pos + 1, 3); // %^ti or %^to
+						pos = close_pos + 4;
+					} else {
+						// Single char directive (i, o, C, e, n, t, etc.)
+						char type_char = format_str[close_pos + 1];
+						directive = "%" + string(1, type_char);
+						pos = close_pos + 2;
+					}
 				} else {
 					// Malformed directive, skip
 					pos++;
@@ -219,6 +424,34 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 
 			// Add field
 			result.fields.emplace_back(directive, column_name, type, in_quotes, modifier);
+
+			// Set timestamp format type for %t directives
+			if (directive == "%t") {
+				auto &field = result.fields.back();
+				if (modifier.empty()) {
+					field.timestamp_type = TimestampFormatType::APACHE_DEFAULT;
+				} else if (modifier == "sec") {
+					field.timestamp_type = TimestampFormatType::EPOCH_SEC;
+				} else if (modifier == "msec") {
+					field.timestamp_type = TimestampFormatType::EPOCH_MSEC;
+				} else if (modifier == "usec") {
+					field.timestamp_type = TimestampFormatType::EPOCH_USEC;
+				} else if (modifier == "msec_frac") {
+					field.timestamp_type = TimestampFormatType::FRAC_MSEC;
+				} else if (modifier == "usec_frac") {
+					field.timestamp_type = TimestampFormatType::FRAC_USEC;
+				} else {
+					// Strip begin: or end: prefix if present (handled as begin: for now)
+					string strftime_fmt = modifier;
+					if (strftime_fmt.substr(0, 6) == "begin:") {
+						strftime_fmt = strftime_fmt.substr(6);
+					} else if (strftime_fmt.substr(0, 4) == "end:") {
+						strftime_fmt = strftime_fmt.substr(4);
+					}
+					field.timestamp_type = TimestampFormatType::STRFTIME;
+					field.strftime_format = strftime_fmt;
+				}
+			}
 		} else {
 			// Skip non-directive characters
 			pos++;
@@ -298,8 +531,35 @@ string HttpdLogFormatParser::GenerateRegexPattern(const ParsedFormat &parsed_for
 			if (field.is_quoted) {
 				regex_expr = "[^\"]*"; // Match anything except quotes
 			} else if (field.directive == "%t") {
-				// Timestamp is special: always capture for timestamp_raw
-				pattern << "\\[([^\\]]+)\\]";
+				// Timestamp directives - pattern depends on format type
+				// NOTE: For timestamp groups, ALL %t fields must be captured (not non-capturing)
+				// because we need all values to combine them into a single timestamp.
+				// This differs from other should_skip fields which use non-capturing groups.
+				string ts_regex;
+				switch (field.timestamp_type) {
+				case TimestampFormatType::APACHE_DEFAULT:
+					// Plain %t: bracketed Apache format [DD/MMM/YYYY:HH:MM:SS TZ]
+					pattern << "\\[([^\\]]+)\\]";
+					field_idx++;
+					continue;
+				case TimestampFormatType::EPOCH_SEC:
+				case TimestampFormatType::EPOCH_MSEC:
+				case TimestampFormatType::EPOCH_USEC:
+					ts_regex = "\\d+"; // Epoch timestamps are just digits
+					break;
+				case TimestampFormatType::FRAC_MSEC:
+					ts_regex = "\\d{3}"; // Millisecond fraction: 3 digits
+					break;
+				case TimestampFormatType::FRAC_USEC:
+					ts_regex = "\\d{6}"; // Microsecond fraction: 6 digits
+					break;
+				case TimestampFormatType::STRFTIME:
+					ts_regex = StrftimeToRegex(field.strftime_format);
+					break;
+				}
+				// Always use capturing group for %t (even if should_skip) because
+				// we need to combine values from timestamp groups
+				pattern << "(" << ts_regex << ")";
 				field_idx++;
 				continue;
 			} else {
@@ -365,14 +625,25 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 				return_types.push_back(LogicalType::VARCHAR);
 			}
 		}
-		// Special handling for %r (request) - decompose into method, path, protocol
+		// Special handling for %r (request) - decompose into method, path, query_string, protocol
+		// Skip sub-columns that are overridden by individual directives (%m, %U, %q, %H)
 		else if (field.directive == "%r") {
-			names.push_back("method");
-			return_types.push_back(LogicalType::VARCHAR);
-			names.push_back("path");
-			return_types.push_back(LogicalType::VARCHAR);
-			names.push_back("protocol");
-			return_types.push_back(LogicalType::VARCHAR);
+			if (!field.skip_method) {
+				names.push_back("method");
+				return_types.push_back(LogicalType::VARCHAR);
+			}
+			if (!field.skip_path) {
+				names.push_back("path");
+				return_types.push_back(LogicalType::VARCHAR);
+			}
+			if (!field.skip_query_string) {
+				names.push_back("query_string");
+				return_types.push_back(LogicalType::VARCHAR);
+			}
+			if (!field.skip_protocol) {
+				names.push_back("protocol");
+				return_types.push_back(LogicalType::VARCHAR);
+			}
 		}
 		// Regular field
 		else {
@@ -381,8 +652,8 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 		}
 	}
 
-	// Add standard metadata columns: filename is always included
-	names.push_back("filename");
+	// Add standard metadata columns: log_file is always included
+	names.push_back("log_file");
 	return_types.push_back(LogicalType::VARCHAR);
 
 	// parse_error and raw_line are only included in raw mode
@@ -451,12 +722,24 @@ bool HttpdLogFormatParser::ParseTimestamp(const string &timestamp_str, timestamp
 	return true;
 }
 
-bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, string &path, string &protocol) {
-	// Request format: "GET /index.html HTTP/1.0"
+bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, string &path, string &query_string,
+                                        string &protocol) {
+	// Request format: "GET /index.html?foo=bar HTTP/1.0"
 	std::istringstream iss(request);
+	string full_path;
 
-	if (!(iss >> method >> path >> protocol)) {
+	if (!(iss >> method >> full_path >> protocol)) {
 		return false;
+	}
+
+	// Split path and query string at '?'
+	size_t query_pos = full_path.find('?');
+	if (query_pos != string::npos) {
+		path = full_path.substr(0, query_pos);
+		query_string = full_path.substr(query_pos); // includes '?'
+	} else {
+		path = full_path;
+		query_string = "";
 	}
 
 	return true;
@@ -497,6 +780,124 @@ vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const Pars
 }
 
 void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_format) {
+	// Step 0: Handle %r vs individual directive collisions
+	// When %m, %U, %q, or %H are present alongside %r, skip the corresponding %r sub-column
+	// Individual directives take priority over %r decomposition
+	bool has_m = false, has_U = false, has_q = false, has_H = false;
+	idx_t r_field_idx = DConstants::INVALID_INDEX;
+
+	for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
+		const string &dir = parsed_format.fields[i].directive;
+		if (dir == "%r") {
+			r_field_idx = i;
+		} else if (dir == "%m") {
+			has_m = true;
+		} else if (dir == "%U") {
+			has_U = true;
+		} else if (dir == "%q") {
+			has_q = true;
+		} else if (dir == "%H") {
+			has_H = true;
+		}
+	}
+
+	// If %r is present with individual directives, set skip flags
+	if (r_field_idx != DConstants::INVALID_INDEX) {
+		auto &r_field = parsed_format.fields[r_field_idx];
+		if (has_m) {
+			r_field.skip_method = true;
+		}
+		if (has_U) {
+			r_field.skip_path = true;
+		}
+		if (has_q) {
+			r_field.skip_query_string = true;
+		}
+		if (has_H) {
+			r_field.skip_protocol = true;
+		}
+	}
+
+	// Step 0.5: Group consecutive %t directives into timestamp groups
+	// Multiple %t/%{format}t can be combined into a single timestamp column
+	{
+		int current_group_id = 0;
+		bool in_timestamp_group = false;
+		idx_t first_ts_in_group = DConstants::INVALID_INDEX;
+
+		for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
+			auto &field = parsed_format.fields[i];
+
+			if (field.directive == "%t") {
+				if (!in_timestamp_group) {
+					// Start new group
+					in_timestamp_group = true;
+					first_ts_in_group = i;
+					field.timestamp_group_id = current_group_id;
+
+					// Create new timestamp group
+					TimestampGroup group;
+					group.field_indices.push_back(i);
+
+					// Set flags based on format type
+					switch (field.timestamp_type) {
+					case TimestampFormatType::APACHE_DEFAULT:
+						group.has_plain_t = true;
+						break;
+					case TimestampFormatType::EPOCH_SEC:
+					case TimestampFormatType::EPOCH_MSEC:
+					case TimestampFormatType::EPOCH_USEC:
+						group.has_epoch_component = true;
+						break;
+					case TimestampFormatType::FRAC_MSEC:
+					case TimestampFormatType::FRAC_USEC:
+						group.has_frac_component = true;
+						break;
+					case TimestampFormatType::STRFTIME:
+						group.has_strftime_component = true;
+						break;
+					}
+
+					parsed_format.timestamp_groups.push_back(group);
+				} else {
+					// Continue existing group - this %t is part of the current group
+					field.timestamp_group_id = current_group_id;
+					field.should_skip = true; // Skip in schema, will be combined
+
+					// Update group with this field
+					auto &group = parsed_format.timestamp_groups.back();
+					group.field_indices.push_back(i);
+
+					// Update flags
+					switch (field.timestamp_type) {
+					case TimestampFormatType::APACHE_DEFAULT:
+						group.has_plain_t = true;
+						break;
+					case TimestampFormatType::EPOCH_SEC:
+					case TimestampFormatType::EPOCH_MSEC:
+					case TimestampFormatType::EPOCH_USEC:
+						group.has_epoch_component = true;
+						break;
+					case TimestampFormatType::FRAC_MSEC:
+					case TimestampFormatType::FRAC_USEC:
+						group.has_frac_component = true;
+						break;
+					case TimestampFormatType::STRFTIME:
+						group.has_strftime_component = true;
+						break;
+					}
+				}
+			} else {
+				// Non-%t directive encountered
+				if (in_timestamp_group) {
+					// End current group and prepare for next one
+					in_timestamp_group = false;
+					current_group_id++;
+				}
+			}
+		}
+	}
+
 	// Step 1: Build collision map - group field indices by column name
 	std::unordered_map<string, vector<idx_t>> collision_map;
 	for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
@@ -510,6 +911,104 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 
 		if (field_indices.size() <= 1) {
 			continue; // No collision for this column name
+		}
+
+		// Special case: Duration directives - keep only highest precision, skip others
+		// This handles %D, %T, %{ms}T, %{us}T, %{s}T collisions
+		if (column_name == "duration") {
+			// Find field with lowest priority number (= highest precision)
+			idx_t best_idx = field_indices[0];
+			int best_priority =
+			    GetDurationPriority(parsed_format.fields[best_idx].directive, parsed_format.fields[best_idx].modifier);
+
+			for (idx_t idx : field_indices) {
+				int priority =
+				    GetDurationPriority(parsed_format.fields[idx].directive, parsed_format.fields[idx].modifier);
+				if (priority >= 0 && (best_priority < 0 || priority < best_priority)) {
+					best_priority = priority;
+					best_idx = idx;
+				}
+			}
+
+			// Mark all but the best as should_skip
+			for (idx_t idx : field_indices) {
+				if (idx != best_idx) {
+					parsed_format.fields[idx].should_skip = true;
+				}
+			}
+			continue; // Skip standard collision resolution for duration
+		}
+
+		// Special case: Process ID - %P and %{pid}P are equivalent
+		// %P (no modifier) takes priority, %{pid}P gets skipped
+		if (column_name == "process_id") {
+			idx_t best_idx = field_indices[0];
+			bool found_bare = false;
+
+			// Find %P without modifier (preferred)
+			for (idx_t idx : field_indices) {
+				const auto &field = parsed_format.fields[idx];
+				if (field.directive == "%P" && field.modifier.empty()) {
+					best_idx = idx;
+					found_bare = true;
+					break;
+				}
+			}
+
+			// If no bare %P, use first %{pid}P
+			if (!found_bare) {
+				for (idx_t idx : field_indices) {
+					const auto &field = parsed_format.fields[idx];
+					if (field.directive == "%P" && field.modifier == "pid") {
+						best_idx = idx;
+						break;
+					}
+				}
+			}
+
+			// Mark all but the best as should_skip
+			for (idx_t idx : field_indices) {
+				if (idx != best_idx) {
+					parsed_format.fields[idx].should_skip = true;
+				}
+			}
+			continue;
+		}
+
+		// Special case: Server Port - %p and %{canonical}p are equivalent
+		// %p (no modifier) takes priority, %{canonical}p gets skipped
+		if (column_name == "server_port") {
+			idx_t best_idx = field_indices[0];
+			bool found_bare = false;
+
+			// Find %p without modifier (preferred)
+			for (idx_t idx : field_indices) {
+				const auto &field = parsed_format.fields[idx];
+				if (field.directive == "%p" && field.modifier.empty()) {
+					best_idx = idx;
+					found_bare = true;
+					break;
+				}
+			}
+
+			// If no bare %p, use first %{canonical}p
+			if (!found_bare) {
+				for (idx_t idx : field_indices) {
+					const auto &field = parsed_format.fields[idx];
+					if (field.directive == "%p" && field.modifier == "canonical") {
+						best_idx = idx;
+						break;
+					}
+				}
+			}
+
+			// Mark all but the best as should_skip
+			for (idx_t idx : field_indices) {
+				if (idx != best_idx) {
+					parsed_format.fields[idx].should_skip = true;
+				}
+			}
+			continue;
 		}
 
 		// Separate fields by directive type to determine collision type

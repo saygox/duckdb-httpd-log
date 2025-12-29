@@ -27,7 +27,7 @@ LIMIT 1;
 
 # Test 4: File metadata column exists
 query T
-SELECT DISTINCT filename
+SELECT DISTINCT log_file
 FROM read_httpd_log('test/data/common/sample.log');
 ----
 test/data/common/sample.log

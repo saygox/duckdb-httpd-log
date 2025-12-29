@@ -34,7 +34,7 @@ private:
 	struct GlobalState : public GlobalTableFunctionState {
 		idx_t current_file_idx;
 		unique_ptr<HttpdLogBufferedReader> buffered_reader;
-		string current_filename;
+		string current_file;
 		bool finished;
 
 		// Profiling statistics

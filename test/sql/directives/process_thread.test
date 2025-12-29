@@ -1,0 +1,226 @@
+# name: test/sql/directives/process_thread.test
+# description: Tests for process/thread ID and connection directives (%k, %P, %{format}P, %X)
+# group: [directives]
+
+require httpd_log
+
+# =============================================================================
+# Test Group 1: Basic directives
+# =============================================================================
+
+# Test 1: %k keepalive_count - column exists with INTEGER type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %P %{tid}P %{hextid}P %k %X'
+    )
+)
+WHERE column_name = 'keepalive_count';
+----
+keepalive_count	INTEGER
+
+# Test 2: %X connection_status - column exists with VARCHAR type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %P %{tid}P %{hextid}P %k %X'
+    )
+)
+WHERE column_name = 'connection_status';
+----
+connection_status	VARCHAR
+
+# Test 3: %P process_id - column exists with INTEGER type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %P %{tid}P %{hextid}P %k %X'
+    )
+)
+WHERE column_name = 'process_id';
+----
+process_id	INTEGER
+
+# Test 4: %{tid}P thread_id - column exists with BIGINT type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %P %{tid}P %{hextid}P %k %X'
+    )
+)
+WHERE column_name = 'thread_id';
+----
+thread_id	BIGINT
+
+# Test 5: %{hextid}P thread_id_hex - column exists with VARCHAR type
+query TT
+SELECT column_name, column_type
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %P %{tid}P %{hextid}P %k %X'
+    )
+)
+WHERE column_name = 'thread_id_hex';
+----
+thread_id_hex	VARCHAR
+
+# =============================================================================
+# Test Group 2: %P and %{pid}P collision handling
+# =============================================================================
+
+# Test 6: %P alone produces process_id
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %P'
+    )
+)
+WHERE column_name = 'process_id';
+----
+1
+
+# Test 7: %{pid}P alone produces process_id
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %{pid}P'
+    )
+)
+WHERE column_name = 'process_id';
+----
+1
+
+# Test 8: %P and %{pid}P together - only one process_id column (skip duplicate)
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %P %{pid}P'
+    )
+)
+WHERE column_name LIKE 'process_id%';
+----
+1
+
+# Test 9: %{pid}P and %P together (reversed order) - only one process_id column
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %{pid}P %P'
+    )
+)
+WHERE column_name LIKE 'process_id%';
+----
+1
+
+# =============================================================================
+# Test Group 3: All %{format}P variants together
+# =============================================================================
+
+# Test 10: All three %{format}P variants - 3 distinct columns
+query T
+SELECT column_name
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %{pid}P %{tid}P %{hextid}P'
+    )
+)
+WHERE column_name IN ('process_id', 'thread_id', 'thread_id_hex')
+ORDER BY column_name;
+----
+process_id
+thread_id
+thread_id_hex
+
+# Test 11: %P with all %{format}P variants - 3 columns (process_id, thread_id, thread_id_hex)
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %P %{pid}P %{tid}P %{hextid}P'
+    )
+)
+WHERE column_name IN ('process_id', 'thread_id', 'thread_id_hex');
+----
+3
+
+# =============================================================================
+# Test Group 4: Connection status values
+# =============================================================================
+
+# Test 12: Connection status values - verify distinct values (converted from X/+/-)
+query T
+SELECT DISTINCT connection_status
+FROM read_httpd_log(
+    'test/data/directives/process_thread.log',
+    format_str='%h %P %{tid}P %{hextid}P %k %X'
+)
+ORDER BY connection_status;
+----
+aborted
+close
+keepalive
+
+# =============================================================================
+# Test Group 5: Keepalive count values
+# =============================================================================
+
+# Test 13: Keepalive count values
+query I
+SELECT keepalive_count
+FROM read_httpd_log(
+    'test/data/directives/process_thread.log',
+    format_str='%h %P %{tid}P %{hextid}P %k %X'
+)
+ORDER BY keepalive_count;
+----
+0
+1
+2
+
+# =============================================================================
+# Test Group 6: Data extraction
+# =============================================================================
+
+# Test 14: Extract all values from first row
+query IIITI
+SELECT process_id, thread_id, keepalive_count, thread_id_hex, connection_status
+FROM read_httpd_log(
+    'test/data/directives/process_thread.log',
+    format_str='%h %P %{tid}P %{hextid}P %k %X'
+)
+ORDER BY process_id
+LIMIT 1;
+----
+12345	67890	0	abc123	aborted
+
+# Test 15: All columns present - 7 columns total
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/process_thread.log',
+        format_str='%h %P %{tid}P %{hextid}P %k %X'
+    )
+);
+----
+7
+

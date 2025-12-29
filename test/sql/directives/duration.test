@@ -1,0 +1,213 @@
+# name: test/sql/directives/duration.test
+# description: Tests for %D and %T duration directives with INTERVAL type
+# group: [directives]
+
+require httpd_log
+
+# Test 1: %D directive - row count with raw mode (to debug)
+query I
+SELECT COUNT(*)
+FROM read_httpd_log(
+    'test/data/directives/duration.log',
+    format_str='%h %l %u %t "%r" %>s %b %D',
+    raw=true
+);
+----
+3
+
+# Test 2: %D directive - type check
+query T
+SELECT typeof(duration)
+FROM read_httpd_log(
+    'test/data/directives/duration.log',
+    format_str='%h %l %u %t "%r" %>s %b %D',
+    raw=true
+)
+LIMIT 1;
+----
+INTERVAL
+
+# Test 3: %D directive - all values ordered
+query I
+SELECT duration
+FROM read_httpd_log(
+    'test/data/directives/duration.log',
+    format_str='%h %l %u %t "%r" %>s %b %D',
+    raw=true
+)
+ORDER BY duration;
+----
+00:00:00.00025
+00:00:00.05
+00:00:01.5
+
+# Test 4: %T directive (seconds) - row count
+query I
+SELECT COUNT(*)
+FROM read_httpd_log(
+    'test/data/directives/duration_sec.log',
+    format_str='%h %l %u %t "%r" %>s %b %T',
+    raw=true
+);
+----
+3
+
+# Test 5: %T directive - values
+query I
+SELECT duration
+FROM read_httpd_log(
+    'test/data/directives/duration_sec.log',
+    format_str='%h %l %u %t "%r" %>s %b %T',
+    raw=true
+)
+ORDER BY duration;
+----
+00:00:00
+00:00:02
+00:00:05
+
+# Test 6: Both %D and %T - only highest precision (duration) exists
+query II
+SELECT
+    COUNT(*) FILTER (WHERE column_name = 'duration') as has_duration,
+    COUNT(*) FILTER (WHERE column_name = 'duration_sec') as has_duration_sec
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/duration_both.log',
+        format_str='%h %l %u %t "%r" %>s %b %D %T'
+    )
+);
+----
+1	0
+
+# Test 7: Both %D and %T - only %D values (highest precision) are kept
+query I
+SELECT duration
+FROM read_httpd_log(
+    'test/data/directives/duration_both.log',
+    format_str='%h %l %u %t "%r" %>s %b %D %T',
+    raw=true
+)
+ORDER BY duration;
+----
+00:00:00.25
+00:00:01.5
+00:00:05
+
+# Test 8: INTERVAL filtering
+query I
+SELECT COUNT(*)
+FROM read_httpd_log(
+    'test/data/directives/duration.log',
+    format_str='%h %l %u %t "%r" %>s %b %D',
+    raw=true
+)
+WHERE duration > INTERVAL '100 milliseconds';
+----
+1
+
+# Test 9: Duration with zero value
+query I
+SELECT duration
+FROM read_httpd_log(
+    'test/data/directives/duration_sec.log',
+    format_str='%h %l %u %t "%r" %>s %b %T',
+    raw=true
+)
+WHERE duration = INTERVAL '0 seconds';
+----
+00:00:00
+
+# Test 10: Duration ordering with path
+query TI
+SELECT path, duration
+FROM read_httpd_log(
+    'test/data/directives/duration.log',
+    format_str='%h %l %u %t "%r" %>s %b %D',
+    raw=true
+)
+ORDER BY duration DESC
+LIMIT 1;
+----
+/index.html	00:00:01.5
+
+# Test 11: %{ms}T directive (milliseconds)
+query I
+SELECT duration
+FROM read_httpd_log(
+    'test/data/directives/duration_unit.log',
+    format_str='%h %l %u %t "%r" %>s %b %{ms}T',
+    raw=true
+)
+ORDER BY duration;
+----
+00:00:00.05
+00:00:00.25
+00:00:01.5
+
+# Test 12: %{us}T directive (microseconds) - same as %D
+query I
+SELECT duration
+FROM read_httpd_log(
+    'test/data/directives/duration.log',
+    format_str='%h %l %u %t "%r" %>s %b %{us}T',
+    raw=true
+)
+ORDER BY duration;
+----
+00:00:00.00025
+00:00:00.05
+00:00:01.5
+
+# Test 13: %{s}T directive (seconds) - same as %T
+query I
+SELECT duration
+FROM read_httpd_log(
+    'test/data/directives/duration_sec.log',
+    format_str='%h %l %u %t "%r" %>s %b %{s}T',
+    raw=true
+)
+ORDER BY duration;
+----
+00:00:00
+00:00:02
+00:00:05
+
+# Test 14: %{UNIT}T type check
+query T
+SELECT typeof(duration)
+FROM read_httpd_log(
+    'test/data/directives/duration_unit.log',
+    format_str='%h %l %u %t "%r" %>s %b %{ms}T',
+    raw=true
+)
+LIMIT 1;
+----
+INTERVAL
+
+# Test 15: Verify %D is kept over %T (same data file, same format order)
+# Data: 250000(us) 0(s) - with %D %T format, %D value = 0.25s
+query I
+SELECT duration
+FROM read_httpd_log(
+    'test/data/directives/duration_both.log',
+    format_str='%h %l %u %t "%r" %>s %b %D %T',
+    raw=true
+)
+ORDER BY duration
+LIMIT 1;
+----
+00:00:00.25
+
+# Test 16: Single column output when multiple duration directives present
+query I
+SELECT COUNT(*) FILTER (WHERE column_name = 'duration')
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/duration_both.log',
+        format_str='%h %l %u %t "%r" %>s %b %D %T'
+    )
+);
+----
+1
+

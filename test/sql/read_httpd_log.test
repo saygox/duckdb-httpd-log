@@ -14,7 +14,7 @@ SELECT
     timestamp,
     status,
     bytes,
-    filename
+    log_file
 FROM read_httpd_log('test/data/common/sample.log')
 ORDER BY timestamp
 LIMIT 3;
@@ -23,21 +23,21 @@ LIMIT 3;
 192.168.1.2	-	alice	2000-10-10 20:56:45	201	150	test/data/common/sample.log
 192.168.1.3	-	-	2000-10-10 20:57:12	304	0	test/data/common/sample.log
 
-# Test 2: Verify schema without raw mode (10 columns: no timestamp_raw, parse_error, raw_line)
+# Test 2: Verify schema without raw mode (11 columns: no timestamp_raw, parse_error, raw_line)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log')
 );
 ----
-10
+11
 
-# Test 3: Verify schema with raw mode (13 columns: includes timestamp_raw, parse_error, raw_line)
+# Test 3: Verify schema with raw mode (14 columns: includes timestamp_raw, parse_error, raw_line)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', raw=true)
 );
 ----
-13
+14
 
 # Test 4: Verify raw=false skips parse error rows
 query I
@@ -91,7 +91,7 @@ SELECT timestamp_raw FROM read_httpd_log('test/data/common/sample.log');
 ----
 Binder Error: Referenced column "timestamp_raw" not found in FROM clause
 
-# Test 11: Verify all 13 columns are returned with raw=true
+# Test 11: Verify all 14 columns are returned with raw=true
 query I
 SELECT COUNT(*) FROM (
     SELECT
@@ -102,10 +102,11 @@ SELECT COUNT(*) FROM (
         timestamp_raw,
         method,
         path,
+        query_string,
         protocol,
         status,
         bytes,
-        filename,
+        log_file,
         parse_error,
         raw_line
     FROM read_httpd_log('test/data/common/sample.log', raw=true)
@@ -169,7 +170,7 @@ Binder Error: No function matches the given name and argument types
 
 # Test 18: Test with glob pattern
 query I
-SELECT COUNT(DISTINCT filename)
+SELECT COUNT(DISTINCT log_file)
 FROM read_httpd_log('test/data/multi_file/server*.log');
 ----
 3
@@ -195,8 +196,8 @@ FROM read_httpd_log('test/data/common/*.log', raw=true);
 ----
 11
 
-# Test 22: Verify column names with raw=false (should be 10 columns)
-query TTTTTTTTTT
+# Test 22: Verify column names with raw=false (should be 11 columns)
+query TTTTTTTTTTT
 SELECT
     client_ip,
     ident,
@@ -204,17 +205,18 @@ SELECT
     timestamp,
     method,
     path,
+    query_string,
     protocol,
     status,
     bytes,
-    filename
+    log_file
 FROM read_httpd_log('test/data/common/sample.log')
 LIMIT 1;
 ----
-192.168.1.1	-	frank	2000-10-10 20:55:36	GET	/index.html	HTTP/1.0	200	2326	test/data/common/sample.log
+192.168.1.1	-	frank	2000-10-10 20:55:36	GET	/index.html	(empty)	HTTP/1.0	200	2326	test/data/common/sample.log
 
-# Test 23: Verify column names with raw=true (should be 13 columns)
-query TTTTTTTTTTTIT
+# Test 23: Verify column names with raw=true (should be 14 columns)
+query TTTTTTTTTTTTIT
 SELECT
     client_ip,
     ident,
@@ -223,16 +225,17 @@ SELECT
     timestamp_raw,
     method,
     path,
+    query_string,
     protocol,
     status,
     bytes,
-    filename,
+    log_file,
     parse_error,
     raw_line
 FROM read_httpd_log('test/data/common/sample.log', raw=true)
 LIMIT 1;
 ----
-192.168.1.1	-	frank	2000-10-10 20:55:36	10/Oct/2000:13:55:36 -0700	GET	/index.html	HTTP/1.0	200	2326	test/data/common/sample.log	0	NULL
+192.168.1.1	-	frank	2000-10-10 20:55:36	10/Oct/2000:13:55:36 -0700	GET	/index.html	(empty)	HTTP/1.0	200	2326	test/data/common/sample.log	0	NULL
 
 # Test 24: Verify raw_line is NULL for successful parses with raw=true
 query I
