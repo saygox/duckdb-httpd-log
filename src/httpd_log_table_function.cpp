@@ -1,6 +1,8 @@
 #include "httpd_log_table_function.hpp"
+#include "httpd_log_multi_file_info.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/common/multi_file/multi_file_function.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 #include "duckdb/common/types/interval.hpp"
 #include "duckdb/common/types/date.hpp"
@@ -884,17 +886,14 @@ InsertionOrderPreservingMap<string> HttpdLogTableFunction::DynamicToString(Table
 }
 
 void HttpdLogTableFunction::RegisterFunction(ExtensionLoader &loader) {
-	// Create table function with optional format_type, format_str, and raw parameters
-	TableFunction read_httpd_log("read_httpd_log", {LogicalType::VARCHAR}, Function, Bind, Init);
-	read_httpd_log.named_parameters["format_type"] = LogicalType::VARCHAR;
-	read_httpd_log.named_parameters["format_str"] = LogicalType::VARCHAR;
-	read_httpd_log.named_parameters["raw"] = LogicalType::BOOLEAN;
-
-	// Register profiling callback for EXPLAIN ANALYZE
-	read_httpd_log.dynamic_to_string = DynamicToString;
+	// Use MultiFileFunction for proper file handling (like read_file pattern)
+	MultiFileFunction<HttpdLogMultiFileInfo> table_function("read_httpd_log");
+	table_function.named_parameters["format_type"] = LogicalType::VARCHAR;
+	table_function.named_parameters["format_str"] = LogicalType::VARCHAR;
+	table_function.named_parameters["raw"] = LogicalType::BOOLEAN;
 
 	// Register the function
-	loader.RegisterFunction(read_httpd_log);
+	loader.RegisterFunction(static_cast<TableFunction>(table_function));
 }
 
 } // namespace duckdb

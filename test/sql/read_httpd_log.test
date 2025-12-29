@@ -160,7 +160,7 @@ GROUP BY path;
 statement error
 SELECT * FROM read_httpd_log('nonexistent.log');
 ----
-Binder Error: No files found matching pattern: nonexistent.log
+IO Error: No files found that match the pattern "nonexistent.log"
 
 # Test 17: Error - too many arguments (named parameters don't support positional)
 statement error

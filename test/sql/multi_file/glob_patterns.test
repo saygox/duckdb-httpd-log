@@ -165,7 +165,7 @@ FROM read_httpd_log('test/data/multi_file/server*.log');
 statement error
 SELECT * FROM read_httpd_log('test/data/nonexistent*.log');
 ----
-Binder Error: No files found matching pattern: test/data/nonexistent*.log
+IO Error: No files found that match the pattern "test/data/nonexistent*.log"
 
 # Test 20: Combine format_type with glob pattern
 query I
