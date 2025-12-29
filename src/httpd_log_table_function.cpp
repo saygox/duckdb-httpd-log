@@ -685,8 +685,13 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 							col_idx++;
 						}
 						if (!field.skip_query_string) {
-							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-							    StringVector::AddString(output.data[col_idx], query_string);
+							// Empty query_string becomes NULL (no query parameters)
+							if (query_string.empty()) {
+								FlatVector::SetNull(output.data[col_idx], output_idx, true);
+							} else {
+								FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+								    StringVector::AddString(output.data[col_idx], query_string);
+							}
 							col_idx++;
 						}
 						if (!field.skip_protocol) {
@@ -706,8 +711,8 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 							col_idx++;
 						}
 						if (!field.skip_query_string) {
-							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-							    StringVector::AddString(output.data[col_idx], "");
+							// Parse failure: query_string is NULL
+							FlatVector::SetNull(output.data[col_idx], output_idx, true);
 							col_idx++;
 						}
 						if (!field.skip_protocol) {
@@ -737,14 +742,19 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
 							    StringVector::AddString(output.data[col_idx], status_str);
 						} else {
-							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-							    StringVector::AddString(output.data[col_idx], value);
+							// Convert "-" to NULL for VARCHAR columns (CLF convention for "no data")
+							if (value == "-") {
+								FlatVector::SetNull(output.data[col_idx], output_idx, true);
+							} else {
+								FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+								    StringVector::AddString(output.data[col_idx], value);
+							}
 						}
 					} else if (field.type.id() == LogicalTypeId::INTEGER) {
 						try {
-							// Handle "-" as 0 for numeric fields
+							// Handle "-" as NULL for INTEGER fields
 							if (value == "-") {
-								FlatVector::GetData<int32_t>(output.data[col_idx])[output_idx] = 0;
+								FlatVector::SetNull(output.data[col_idx], output_idx, true);
 							} else {
 								int32_t int_val = std::stoi(value);
 								FlatVector::GetData<int32_t>(output.data[col_idx])[output_idx] = int_val;
@@ -754,9 +764,15 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						}
 					} else if (field.type.id() == LogicalTypeId::BIGINT) {
 						try {
-							// Handle "-" as 0 for numeric fields
+							// Handle "-": bytes columns get 0, others get NULL
 							if (value == "-") {
-								FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = 0;
+								static const std::unordered_set<string> bytes_columns = {
+								    "bytes", "bytes_clf", "bytes_received", "bytes_sent", "bytes_transferred"};
+								if (bytes_columns.count(field.column_name)) {
+									FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = 0;
+								} else {
+									FlatVector::SetNull(output.data[col_idx], output_idx, true);
+								}
 							} else {
 								int64_t int_val = std::stoll(value);
 								FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = int_val;

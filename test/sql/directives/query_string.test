@@ -4,7 +4,7 @@
 
 require httpd_log
 
-# Test 1: %r now includes query_string column
+# Test 1: %r now includes query_string column (NULL for no query params)
 query TTTT
 SELECT method, path, query_string, protocol
 FROM read_httpd_log(
@@ -13,11 +13,11 @@ FROM read_httpd_log(
 )
 ORDER BY path;
 ----
-POST	/api/data	(empty)	HTTP/1.1
+POST	/api/data	NULL	HTTP/1.1
 GET	/page	?id=123	HTTP/1.1
 GET	/search	?q=test&lang=en	HTTP/1.1
 
-# Test 2: %q directive standalone
+# Test 2: %q directive standalone (NULL comes last in ORDER BY)
 query T
 SELECT query_string
 FROM read_httpd_log(
@@ -26,8 +26,8 @@ FROM read_httpd_log(
 )
 ORDER BY query_string;
 ----
--
 ?q=test
+NULL
 
 # Test 3: Column count with %r (should have query_string)
 query I
@@ -99,9 +99,9 @@ FROM read_httpd_log(
 ORDER BY method;
 ----
 GET	/search	?q=test	HTTP/1.1
-POST	/api/data	-	HTTP/1.1
+POST	/api/data	NULL	HTTP/1.1
 
-# Test 9: Empty query_string becomes empty string
+# Test 9: No query_string becomes NULL
 query T
 SELECT query_string
 FROM read_httpd_log(
@@ -110,5 +110,5 @@ FROM read_httpd_log(
 )
 WHERE path = '/api/data';
 ----
-(empty)
+NULL
 

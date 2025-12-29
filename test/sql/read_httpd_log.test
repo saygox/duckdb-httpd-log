@@ -19,9 +19,9 @@ FROM read_httpd_log('test/data/common/sample.log')
 ORDER BY timestamp
 LIMIT 3;
 ----
-192.168.1.1	-	frank	2000-10-10 20:55:36	200	2326	test/data/common/sample.log
-192.168.1.2	-	alice	2000-10-10 20:56:45	201	150	test/data/common/sample.log
-192.168.1.3	-	-	2000-10-10 20:57:12	304	0	test/data/common/sample.log
+192.168.1.1	NULL	frank	2000-10-10 20:55:36	200	2326	test/data/common/sample.log
+192.168.1.2	NULL	alice	2000-10-10 20:56:45	201	150	test/data/common/sample.log
+192.168.1.3	NULL	NULL	2000-10-10 20:57:12	304	0	test/data/common/sample.log
 
 # Test 2: Verify schema without raw mode (11 columns: no timestamp_raw, parse_error, raw_line)
 query I
@@ -213,7 +213,7 @@ SELECT
 FROM read_httpd_log('test/data/common/sample.log')
 LIMIT 1;
 ----
-192.168.1.1	-	frank	2000-10-10 20:55:36	GET	/index.html	(empty)	HTTP/1.0	200	2326	test/data/common/sample.log
+192.168.1.1	NULL	frank	2000-10-10 20:55:36	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log
 
 # Test 23: Verify column names with raw=true (should be 14 columns)
 query TTTTTTTTTTTTIT
@@ -235,7 +235,7 @@ SELECT
 FROM read_httpd_log('test/data/common/sample.log', raw=true)
 LIMIT 1;
 ----
-192.168.1.1	-	frank	2000-10-10 20:55:36	10/Oct/2000:13:55:36 -0700	GET	/index.html	(empty)	HTTP/1.0	200	2326	test/data/common/sample.log	0	NULL
+192.168.1.1	NULL	frank	2000-10-10 20:55:36	10/Oct/2000:13:55:36 -0700	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log	0	NULL
 
 # Test 24: Verify raw_line is NULL for successful parses with raw=true
 query I

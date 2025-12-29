@@ -24,9 +24,9 @@ WHERE parse_error = false
 ORDER BY timestamp
 LIMIT 3;
 ----
-192.168.1.1	-	frank	2000-10-10 20:55:36	200	2326	0	http://www.example.com/	Mozilla/5.0 (Windows NT 10.0; Win64; x64)	GET	/index.html	HTTP/1.0
-192.168.1.2	-	alice	2000-10-10 20:56:45	201	150	0	-	curl/7.68.0	POST	/api/login	HTTP/1.1
-192.168.1.3	-	-	2000-10-10 20:57:12	304	0	0	http://www.example.com/index.html	Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)	GET	/images/logo.png	HTTP/1.1
+192.168.1.1	NULL	frank	2000-10-10 20:55:36	200	2326	0	http://www.example.com/	Mozilla/5.0 (Windows NT 10.0; Win64; x64)	GET	/index.html	HTTP/1.0
+192.168.1.2	NULL	alice	2000-10-10 20:56:45	201	150	0	NULL	curl/7.68.0	POST	/api/login	HTTP/1.1
+192.168.1.3	NULL	NULL	2000-10-10 20:57:12	304	0	0	http://www.example.com/index.html	Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)	GET	/images/logo.png	HTTP/1.1
 
 # Test 2: Verify all records are parsed correctly
 query I
@@ -35,11 +35,11 @@ WHERE parse_error = false;
 ----
 6
 
-# Test 3: Test referer field extraction
+# Test 3: Test referer field extraction (non-NULL referers only)
 query TI
 SELECT referer, COUNT(*) as count
 FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
-WHERE parse_error = false AND referer != '-'
+WHERE parse_error = false AND referer IS NOT NULL
 GROUP BY referer
 ORDER BY referer;
 ----
@@ -66,13 +66,13 @@ ORDER BY parse_error;
 0	3
 1	2
 
-# Test 6: Verify referer is populated for valid lines only
+# Test 6: Verify referer is populated for valid lines only (excluding "-" which becomes NULL)
 query I
 SELECT COUNT(*)
 FROM read_httpd_log('test/data/combined/combined_with_errors.log', format_type='combined', raw=true)
 WHERE parse_error = false AND referer IS NOT NULL;
 ----
-3
+2
 
 # Test 7: Using common format on combined data (will parse unsuccessfully)
 query I
@@ -117,11 +117,11 @@ ORDER BY method;
 ----
 GET	5
 
-# Test 10: Test NULL referer represented as "-"
+# Test 10: Test NULL referer (was "-" in CLF, now NULL)
 query I
 SELECT COUNT(*)
 FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
-WHERE parse_error = false AND referer = '-';
+WHERE parse_error = false AND referer IS NULL;
 ----
 2
 

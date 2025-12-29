@@ -51,7 +51,7 @@ ORDER BY filename;
 /var/www/html/script.js
 /var/www/html/style.css
 
-# Test 4: Extract request_log_id values
+# Test 4: Extract request_log_id values (NULL comes last in ORDER BY)
 query T
 SELECT request_log_id
 FROM read_httpd_log(
@@ -60,9 +60,9 @@ FROM read_httpd_log(
 )
 ORDER BY request_log_id;
 ----
--
 abc123
 def456
+NULL
 
 # =============================================================================
 # Test Group 3: All columns together
