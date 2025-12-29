@@ -164,6 +164,11 @@ public:
 	static bool ParseRequest(const string &request, string &method, string &path, string &query_string,
 	                         string &protocol);
 
+	// Auto-detect log format from sample lines
+	// Returns: "combined", "common", or "unknown"
+	// If unknown, the parsed_format will be set up for raw-only mode
+	static string DetectFormat(const vector<string> &sample_lines, ParsedFormat &parsed_format);
+
 private:
 	// Unified directive definitions - combines column name, type, and collision rules
 	static const std::vector<DirectiveDefinition> directive_definitions;

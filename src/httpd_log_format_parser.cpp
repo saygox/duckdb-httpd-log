@@ -796,6 +796,11 @@ bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, s
 vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const ParsedFormat &parsed_format) {
 	vector<string> result;
 
+	// If no compiled regex (unknown format), return empty to indicate parse error
+	if (!parsed_format.compiled_regex) {
+		return result;
+	}
+
 	// Use the pre-compiled RE2 for performance
 	int num_groups = parsed_format.compiled_regex->NumberOfCapturingGroups();
 
@@ -1145,6 +1150,60 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 	// Note: Fields are NOT removed (maintains sync with regex generation)
 	// should_skip flag is used in GenerateRegexPattern(), GenerateSchema(),
 	// and table function for fields that should be captured but not output
+}
+
+string HttpdLogFormatParser::DetectFormat(const vector<string> &sample_lines, ParsedFormat &parsed_format) {
+	if (sample_lines.empty()) {
+		// No sample lines - return unknown with raw-only schema
+		parsed_format = ParsedFormat("");
+		return "unknown";
+	}
+
+	// Define format strings for common and combined
+	static const string combined_format = "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"";
+	static const string common_format = "%h %l %u %t \"%r\" %>s %b";
+
+	// Try combined first (it's a superset of common, so if combined matches, use it)
+	ParsedFormat combined_parsed = ParseFormatString(combined_format);
+	int combined_matches = 0;
+	for (const auto &line : sample_lines) {
+		if (line.empty()) {
+			continue;
+		}
+		vector<string> values = ParseLogLine(line, combined_parsed);
+		if (!values.empty()) {
+			combined_matches++;
+		}
+	}
+
+	// If most lines match combined format, use it
+	if (combined_matches > 0 && combined_matches >= static_cast<int>(sample_lines.size()) / 2) {
+		parsed_format = std::move(combined_parsed);
+		return "combined";
+	}
+
+	// Try common format
+	ParsedFormat common_parsed = ParseFormatString(common_format);
+	int common_matches = 0;
+	for (const auto &line : sample_lines) {
+		if (line.empty()) {
+			continue;
+		}
+		vector<string> values = ParseLogLine(line, common_parsed);
+		if (!values.empty()) {
+			common_matches++;
+		}
+	}
+
+	// If most lines match common format, use it
+	if (common_matches > 0 && common_matches >= static_cast<int>(sample_lines.size()) / 2) {
+		parsed_format = std::move(common_parsed);
+		return "common";
+	}
+
+	// Neither format matched - return unknown with empty parsed format
+	parsed_format = ParsedFormat("");
+	return "unknown";
 }
 
 } // namespace duckdb

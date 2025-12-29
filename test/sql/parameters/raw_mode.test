@@ -7,14 +7,14 @@ require httpd_log
 # Test 1: raw=false skips parse error rows
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/common/with_errors.log');
+FROM read_httpd_log('test/data/common/with_errors.log', format_type='common');
 ----
 3
 
 # Test 2: raw=true includes parse error rows
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/common/with_errors.log', raw=true);
+FROM read_httpd_log('test/data/common/with_errors.log', format_type='common', raw=true);
 ----
 5
 
@@ -23,7 +23,7 @@ query II
 SELECT
     parse_error,
     COUNT(*) as count
-FROM read_httpd_log('test/data/common/with_errors.log', raw=true)
+FROM read_httpd_log('test/data/common/with_errors.log', format_type='common', raw=true)
 GROUP BY parse_error
 ORDER BY parse_error;
 ----
@@ -32,14 +32,14 @@ ORDER BY parse_error;
 
 # Test 4: parse_error column not accessible with raw=false
 statement error
-SELECT parse_error FROM read_httpd_log('test/data/common/with_errors.log');
+SELECT parse_error FROM read_httpd_log('test/data/common/with_errors.log', format_type='common');
 ----
 Binder Error: Referenced column "parse_error" not found in FROM clause
 
 # Test 5: raw_line populated for parse errors with raw=true
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/common/with_errors.log', raw=true)
+FROM read_httpd_log('test/data/common/with_errors.log', format_type='common', raw=true)
 WHERE parse_error = true AND raw_line IS NOT NULL AND LENGTH(raw_line) > 0;
 ----
 2
@@ -47,21 +47,21 @@ WHERE parse_error = true AND raw_line IS NOT NULL AND LENGTH(raw_line) > 0;
 # Test 6: raw_line is populated for successful parses with raw=true
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/common/sample.log', raw=true)
+FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
 WHERE parse_error = false AND raw_line IS NOT NULL;
 ----
 6
 
 # Test 7: raw_line column not accessible with raw=false
 statement error
-SELECT raw_line FROM read_httpd_log('test/data/common/with_errors.log');
+SELECT raw_line FROM read_httpd_log('test/data/common/with_errors.log', format_type='common');
 ----
 Binder Error: Referenced column "raw_line" not found in FROM clause
 
 # Test 8: timestamp_raw populated with raw=true
 query T
 SELECT timestamp_raw
-FROM read_httpd_log('test/data/common/sample.log', raw=true)
+FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
 WHERE parse_error = false
 ORDER BY timestamp
 LIMIT 1;
@@ -70,7 +70,7 @@ LIMIT 1;
 
 # Test 9: timestamp_raw column not accessible with raw=false
 statement error
-SELECT timestamp_raw FROM read_httpd_log('test/data/common/sample.log');
+SELECT timestamp_raw FROM read_httpd_log('test/data/common/sample.log', format_type='common');
 ----
 Binder Error: Referenced column "timestamp_raw" not found in FROM clause
 
@@ -92,7 +92,7 @@ SELECT COUNT(*) FROM (
         log_file,
         parse_error,
         raw_line
-    FROM read_httpd_log('test/data/common/sample.log', raw=true)
+    FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
 );
 ----
 6
@@ -112,7 +112,7 @@ SELECT COUNT(*) FROM (
         status,
         bytes,
         log_file
-    FROM read_httpd_log('test/data/common/sample.log')
+    FROM read_httpd_log('test/data/common/sample.log', format_type='common')
 );
 ----
 6
@@ -120,7 +120,7 @@ SELECT COUNT(*) FROM (
 # Test 12: timestamp_raw matches original format
 query TT
 SELECT timestamp::VARCHAR, timestamp_raw
-FROM read_httpd_log('test/data/common/sample.log', raw=true)
+FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
 WHERE parse_error = false
 ORDER BY timestamp
 LIMIT 1;
@@ -130,7 +130,7 @@ LIMIT 1;
 # Test 13: parse_error is always false for valid logs
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/common/sample.log', raw=true)
+FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
 WHERE parse_error = true;
 ----
 0
@@ -138,7 +138,7 @@ WHERE parse_error = true;
 # Test 14: parse_error is true for malformed lines
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/edge_cases/malformed.log', raw=true)
+FROM read_httpd_log('test/data/edge_cases/malformed.log', format_type='common', raw=true)
 WHERE parse_error = true;
 ----
 3
@@ -146,7 +146,7 @@ WHERE parse_error = true;
 # Test 15: raw_line contains original text for errors
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/edge_cases/malformed.log', raw=true)
+FROM read_httpd_log('test/data/edge_cases/malformed.log', format_type='common', raw=true)
 WHERE parse_error = true AND raw_line LIKE '%malformed%';
 ----
 1
@@ -154,7 +154,7 @@ WHERE parse_error = true AND raw_line LIKE '%malformed%';
 # Test 16: Filtering by parse_error with raw=true
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/edge_cases/malformed.log', raw=true)
+FROM read_httpd_log('test/data/edge_cases/malformed.log', format_type='common', raw=true)
 WHERE parse_error = false;
 ----
 2
@@ -164,7 +164,7 @@ query II
 SELECT
     parse_error,
     COUNT(*) as count
-FROM read_httpd_log('test/data/common/*.log', raw=true)
+FROM read_httpd_log('test/data/common/*.log', format_type='common', raw=true)
 GROUP BY parse_error
 ORDER BY parse_error;
 ----
@@ -174,15 +174,15 @@ ORDER BY parse_error;
 # Test 18: raw=false total count vs raw=true with multiple files
 query II
 SELECT
-    (SELECT COUNT(*) FROM read_httpd_log('test/data/common/*.log')) as without_raw,
-    (SELECT COUNT(*) FROM read_httpd_log('test/data/common/*.log', raw=true)) as with_raw;
+    (SELECT COUNT(*) FROM read_httpd_log('test/data/common/*.log', format_type='common')) as without_raw,
+    (SELECT COUNT(*) FROM read_httpd_log('test/data/common/*.log', format_type='common', raw=true)) as with_raw;
 ----
 9	11
 
 # Test 19: timestamp_raw preserved for all successful parses
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/common/sample.log', raw=true)
+FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
 WHERE parse_error = false AND timestamp_raw IS NOT NULL;
 ----
 6
@@ -214,22 +214,22 @@ LIMIT 1;
 
 # Test 23: Empty file behavior with raw=true
 query I
-SELECT COUNT(*) FROM read_httpd_log('test/data/common/empty.log', raw=true);
+SELECT COUNT(*) FROM read_httpd_log('test/data/common/empty.log', format_type='common', raw=true);
 ----
 0
 
 # Test 24: raw_line length matches original for errors
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/edge_cases/malformed.log', raw=true)
+FROM read_httpd_log('test/data/edge_cases/malformed.log', format_type='common', raw=true)
 WHERE parse_error = true AND LENGTH(raw_line) > 10;
 ----
 3
 
-# Test 25: Comparing raw vs non-raw counts across all test data
+# Test 25: Comparing raw vs non-raw counts across all test data (common format)
 query II
 SELECT
-    (SELECT COUNT(*) FROM read_httpd_log('test/data/**/*.log')) as default_mode,
-    (SELECT COUNT(*) FROM read_httpd_log('test/data/**/*.log', raw=true)) as raw_mode;
+    (SELECT COUNT(*) FROM read_httpd_log('test/data/**/*.log', format_type='common')) as default_mode,
+    (SELECT COUNT(*) FROM read_httpd_log('test/data/**/*.log', format_type='common', raw=true)) as raw_mode;
 ----
 44	133

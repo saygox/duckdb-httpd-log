@@ -1,0 +1,65 @@
+# name: test/sql/auto_detect.test
+# description: Test automatic format detection for read_httpd_log
+# group: [httpd_log]
+
+require httpd_log
+
+# Test 1: Auto-detect common format
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test/data/common/sample.log');
+----
+6
+
+# Test 2: Auto-detect combined format
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test/data/combined/combined.log');
+----
+6
+
+# Test 3: Verify combined schema is auto-detected (should have referer column)
+query T
+SELECT referer
+FROM read_httpd_log('test/data/combined/combined.log')
+WHERE referer IS NOT NULL
+LIMIT 1;
+----
+http://www.example.com/
+
+# Test 4: Verify common schema is auto-detected (should have standard columns)
+query TTTT
+SELECT client_ip, auth_user, method, protocol
+FROM read_httpd_log('test/data/common/sample.log')
+LIMIT 1;
+----
+192.168.1.1	frank	GET	HTTP/1.0
+
+# Test 5: Unknown format defaults to raw mode with parse_error=true
+query II
+SELECT COUNT(*) as total, SUM(parse_error::INTEGER) as errors
+FROM read_httpd_log('test/data/directives/timestamp_strftime.log');
+----
+2	2
+
+# Test 6: Explicit format_type overrides auto-detection
+# Reading combined log as common format - lines won't match (0 valid rows)
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test/data/combined/combined.log', format_type='common', raw=true);
+----
+6
+
+# Test 7: Explicit format_str overrides auto-detection
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test/data/common/sample.log', format_str='%h %l %u %t "%r" %>s %b');
+----
+6
+
+# Test 8: Multi-file auto-detection uses first non-empty file
+query I
+SELECT COUNT(*)
+FROM read_httpd_log('test/data/common/*.log');
+----
+9
