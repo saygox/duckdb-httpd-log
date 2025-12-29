@@ -1,0 +1,64 @@
+# name: test/sql/read_httpd_conf_integration.test
+# description: Integration tests for read_httpd_log with conf parameter
+# group: [httpd_conf]
+
+require httpd_log
+
+# Test 1: conf with format_type='common' - should find the common format from conf
+query I
+SELECT COUNT(*) FROM read_httpd_log('test/data/common/sample.log', conf='test/data/conf/httpd.conf', format_type='common');
+----
+6
+
+# Test 2: conf with format_type='combined' - should find the combined format from conf
+query I
+SELECT COUNT(*) FROM read_httpd_log('test/data/combined/combined.log', conf='test/data/conf/httpd.conf', format_type='combined');
+----
+6
+
+# Test 3: conf without format_type - should auto-detect from conf formats (default -> inline -> named order)
+# The common/sample.log file should match the 'default' format (LogFormat without nickname)
+query I
+SELECT COUNT(*) FROM read_httpd_log('test/data/common/sample.log', conf='test/data/conf/httpd.conf');
+----
+6
+
+# Test 4: conf without format_type with combined log - should auto-detect
+query I
+SELECT COUNT(*) FROM read_httpd_log('test/data/combined/combined.log', conf='test/data/conf/httpd.conf');
+----
+6
+
+# Test 5: format_str takes priority over conf (format_str should be used directly)
+query I
+SELECT COUNT(*) FROM read_httpd_log('test/data/common/sample.log', conf='test/data/conf/httpd.conf', format_str='%h %l %u %t "%r" %>s %b');
+----
+6
+
+# Test 6: Verify that format_type with conf actually uses the conf definition
+# The 'combined' format from conf should produce referer and user_agent columns
+query I
+SELECT COUNT(*) FROM (
+    SELECT referer, user_agent
+    FROM read_httpd_log('test/data/combined/combined.log', conf='test/data/conf/httpd.conf', format_type='combined')
+);
+----
+6
+
+# Test 7: Error case - format_type not found in conf (non-existent nickname)
+statement error
+SELECT * FROM read_httpd_log('test/data/common/sample.log', conf='test/data/conf/httpd.conf', format_type='nonexistent');
+----
+not found or does not match
+
+# Test 8: Error case - conf file not found
+statement error
+SELECT * FROM read_httpd_log('test/data/common/sample.log', conf='test/data/conf/nonexistent.conf');
+----
+
+# Test 9: Verify continuation_test format exists in conf
+# The conf file has a LogFormat with nickname 'continuation_test'
+query I
+SELECT COUNT(*) FROM read_httpd_log('test/data/common/sample.log', conf='test/data/conf/httpd.conf', format_type='continuation_test');
+----
+6

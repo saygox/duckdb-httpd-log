@@ -12,6 +12,7 @@ class HttpdLogFileReaderOptions : public BaseFileReaderOptions {
 public:
 	string format_type;
 	string format_str;
+	string conf;
 	bool raw_mode = false;
 };
 
@@ -21,6 +22,7 @@ public:
 struct HttpdLogBindData : public TableFunctionData {
 	string format_type;
 	string format_str;
+	string conf;
 	ParsedFormat parsed_format;
 	bool raw_mode = false;
 };

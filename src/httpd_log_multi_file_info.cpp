@@ -1,8 +1,10 @@
 #include "httpd_log_multi_file_info.hpp"
 #include "httpd_log_file_reader.hpp"
 #include "httpd_log_buffered_reader.hpp"
+#include "httpd_conf_reader.hpp"
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/main/client_context.hpp"
+#include <algorithm>
 
 namespace duckdb {
 
@@ -53,6 +55,10 @@ bool HttpdLogMultiFileInfo::ParseOption(ClientContext &context, const string &ke
 		options.format_str = StringValue::Get(value);
 		return true;
 	}
+	if (loption == "conf") {
+		options.conf = StringValue::Get(value);
+		return true;
+	}
 	if (loption == "raw") {
 		options.raw_mode = BooleanValue::Get(value);
 		return true;
@@ -75,6 +81,7 @@ unique_ptr<TableFunctionData> HttpdLogMultiFileInfo::InitializeBindData(MultiFil
 
 	bind_data->format_type = std::move(options.format_type);
 	bind_data->format_str = std::move(options.format_str);
+	bind_data->conf = std::move(options.conf);
 	bind_data->raw_mode = options.raw_mode;
 
 	return std::move(bind_data);
@@ -84,62 +91,140 @@ void HttpdLogMultiFileInfo::BindReader(ClientContext &context, vector<LogicalTyp
                                        MultiFileBindData &bind_data) {
 	auto &httpd_data = bind_data.bind_data->Cast<HttpdLogBindData>();
 
-	// Determine format string from format_type or format_str
-	string format_str = httpd_data.format_str;
-	bool format_specified = !format_str.empty() || !httpd_data.format_type.empty();
-
-	if (format_str.empty()) {
-		if (!httpd_data.format_type.empty()) {
-			// format_type was explicitly specified
-			if (httpd_data.format_type == "common") {
-				format_str = "%h %l %u %t \"%r\" %>s %b";
-			} else if (httpd_data.format_type == "combined") {
-				format_str = "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"";
-			} else {
-				throw BinderException("Invalid format_type '%s'. Supported formats: 'common', 'combined'. "
-				                      "Or use format_str for custom formats.",
-				                      httpd_data.format_type);
-			}
-			httpd_data.format_str = format_str;
-			// Parse the format string
-			httpd_data.parsed_format = HttpdLogFormatParser::ParseFormatString(format_str);
-		} else {
-			// Neither format_type nor format_str specified - auto-detect from file content
-			// Get all files to sample
-			auto expanded_files = bind_data.file_list->GetAllFiles();
-			if (expanded_files.empty()) {
-				throw BinderException("No files found for httpd log reading");
-			}
-
-			// Read sample lines from files until we have enough samples
-			// Try each file until we get at least some sample lines
-			vector<string> sample_lines;
-			for (const auto &file_info : expanded_files) {
-				auto lines = ReadSampleLines(context, file_info.path, 10);
-				sample_lines.insert(sample_lines.end(), lines.begin(), lines.end());
-				if (sample_lines.size() >= 10) {
-					break; // We have enough samples
-				}
-			}
-
-			// Auto-detect format
-			string detected_format = HttpdLogFormatParser::DetectFormat(sample_lines, httpd_data.parsed_format);
-			httpd_data.format_type = detected_format;
-
-			if (detected_format == "common") {
-				httpd_data.format_str = "%h %l %u %t \"%r\" %>s %b";
-			} else if (detected_format == "combined") {
-				httpd_data.format_str = "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"";
-			} else {
-				// Unknown format - use raw mode with minimal schema
-				httpd_data.format_type = "unknown";
-				httpd_data.format_str = "";
-				httpd_data.raw_mode = true; // Force raw mode for unknown format
+	// Helper lambda to read sample lines from log files
+	auto get_sample_lines = [&]() -> vector<string> {
+		auto expanded_files = bind_data.file_list->GetAllFiles();
+		if (expanded_files.empty()) {
+			throw BinderException("No files found for httpd log reading");
+		}
+		vector<string> sample_lines;
+		for (const auto &file_info : expanded_files) {
+			auto lines = ReadSampleLines(context, file_info.path, 10);
+			sample_lines.insert(sample_lines.end(), lines.begin(), lines.end());
+			if (sample_lines.size() >= 10) {
+				break;
 			}
 		}
+		return sample_lines;
+	};
+
+	// Helper lambda to try parsing with a format and return match count
+	auto try_format = [](const vector<string> &sample_lines, const ParsedFormat &parsed) -> int {
+		int matches = 0;
+		for (const auto &line : sample_lines) {
+			if (line.empty()) {
+				continue;
+			}
+			auto values = HttpdLogFormatParser::ParseLogLine(line, parsed);
+			if (!values.empty()) {
+				matches++;
+			}
+		}
+		return matches;
+	};
+
+	// 1. format_str specified - use it directly (highest priority, ignore conf)
+	if (!httpd_data.format_str.empty()) {
+		httpd_data.parsed_format = HttpdLogFormatParser::ParseFormatString(httpd_data.format_str);
+		if (httpd_data.format_type.empty()) {
+			httpd_data.format_type = "custom";
+		}
+
+	} else if (!httpd_data.conf.empty()) {
+		// 2b. conf specified (format_str is empty)
+		auto &fs = FileSystem::GetFileSystem(context);
+		auto entries = HttpdConfReader::ParseConfigFile(httpd_data.conf, fs);
+
+		// Sort by line_number to ensure consistent order
+		std::sort(entries.begin(), entries.end(),
+		          [](const HttpdConfReader::ConfigEntry &a, const HttpdConfReader::ConfigEntry &b) {
+			          return a.line_number < b.line_number;
+		          });
+
+		// Get sample lines for format detection
+		auto sample_lines = get_sample_lines();
+
+		bool found = false;
+
+		if (!httpd_data.format_type.empty()) {
+			// format_type specified: search for nickname=format_type with format_type="named"
+			for (const auto &entry : entries) {
+				if (entry.format_type == "named" && entry.nickname == httpd_data.format_type &&
+				    !entry.format_string.empty()) {
+					auto parsed = HttpdLogFormatParser::ParseFormatString(entry.format_string);
+					int matches = try_format(sample_lines, parsed);
+					if (matches > 0 && matches >= static_cast<int>(sample_lines.size()) / 2) {
+						httpd_data.parsed_format = std::move(parsed);
+						httpd_data.format_str = entry.format_string;
+						// format_type already set
+						found = true;
+						break;
+					}
+				}
+			}
+			if (!found) {
+				throw BinderException(
+				    "Format '%s' in conf file '%s' not found or does not match the log file format",
+				    httpd_data.format_type, httpd_data.conf);
+			}
+		} else {
+			// format_type not specified: try default -> inline -> named order
+			vector<string> try_order = {"default", "inline", "named"};
+
+			for (const auto &type : try_order) {
+				for (const auto &entry : entries) {
+					if (entry.format_type == type && !entry.format_string.empty()) {
+						auto parsed = HttpdLogFormatParser::ParseFormatString(entry.format_string);
+						int matches = try_format(sample_lines, parsed);
+						if (matches > 0 && matches >= static_cast<int>(sample_lines.size()) / 2) {
+							httpd_data.parsed_format = std::move(parsed);
+							httpd_data.format_str = entry.format_string;
+							httpd_data.format_type = entry.nickname.empty() ? type : entry.nickname;
+							found = true;
+							break;
+						}
+					}
+				}
+				if (found) {
+					break;
+				}
+			}
+			if (!found) {
+				throw BinderException("No matching format found in conf file '%s' for the log file",
+				                      httpd_data.conf);
+			}
+		}
+
+	} else if (!httpd_data.format_type.empty()) {
+		// 2a. conf not specified, format_type specified - use built-in definitions
+		if (httpd_data.format_type == "common") {
+			httpd_data.format_str = "%h %l %u %t \"%r\" %>s %b";
+		} else if (httpd_data.format_type == "combined") {
+			httpd_data.format_str = "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"";
+		} else {
+			throw BinderException("Invalid format_type '%s'. Supported formats: 'common', 'combined'. "
+			                      "Or use format_str for custom formats, or conf for httpd.conf lookup.",
+			                      httpd_data.format_type);
+		}
+		httpd_data.parsed_format = HttpdLogFormatParser::ParseFormatString(httpd_data.format_str);
+
 	} else {
-		// format_str was explicitly specified - parse it
-		httpd_data.parsed_format = HttpdLogFormatParser::ParseFormatString(format_str);
+		// 2a. conf not specified, format_type not specified - auto-detect from file content
+		auto sample_lines = get_sample_lines();
+
+		string detected_format = HttpdLogFormatParser::DetectFormat(sample_lines, httpd_data.parsed_format);
+		httpd_data.format_type = detected_format;
+
+		if (detected_format == "common") {
+			httpd_data.format_str = "%h %l %u %t \"%r\" %>s %b";
+		} else if (detected_format == "combined") {
+			httpd_data.format_str = "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"";
+		} else {
+			// Unknown format - use raw mode with minimal schema
+			httpd_data.format_type = "unknown";
+			httpd_data.format_str = "";
+			httpd_data.raw_mode = true; // Force raw mode for unknown format
+		}
 	}
 
 	// Generate schema from parsed format

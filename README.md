@@ -43,6 +43,19 @@ SELECT * FROM read_httpd_log('access.log',
     format_str='%h %l %u %t "%r" %>s %b %D');
 ```
 
+### Using httpd.conf for Format Definition
+
+```sql
+-- Auto-detect format from httpd.conf
+SELECT * FROM read_httpd_log('access.log', conf='/etc/httpd/conf/httpd.conf');
+
+-- Use specific format nickname from httpd.conf
+SELECT * FROM read_httpd_log('access.log', conf='/etc/httpd/conf/httpd.conf', format_type='combined');
+
+-- format_str always takes precedence (conf is ignored)
+SELECT * FROM read_httpd_log('access.log', conf='/etc/httpd/conf/httpd.conf', format_str='%h %t "%r" %>s');
+```
+
 ### Example Queries
 
 ```sql
@@ -98,15 +111,20 @@ See [Schema Documentation](docs/schema.md#typed-http-headers) for more details.
 
 ## Parameters
 
-### `read_httpd_log(path, [format_type], [format_str])`
+### `read_httpd_log(path, [format_type], [format_str], [conf])`
 
 - **`path`** (required): File path or glob pattern (e.g., `'access.log'`, `'logs/*.log'`)
-- **`format_type`** (optional): Predefined format type
-  - `'common'` (default) - Apache Common Log Format
+- **`format_type`** (optional): Predefined format type or nickname from conf file
+  - `'common'` - Apache Common Log Format (default when conf is not specified)
   - `'combined'` - Apache Combined Log Format
+  - When used with `conf`, specifies the LogFormat nickname to look up
 - **`format_str`** (optional): Custom Apache LogFormat string
-  - Takes precedence over `format_type` if both are specified
+  - Takes precedence over all other format options
   - Enables support for custom log formats
+- **`conf`** (optional): Path to Apache httpd.conf file
+  - Reads LogFormat definitions from the configuration file
+  - When specified without `format_type`, auto-detects the matching format
+  - When specified with `format_type`, looks up the format by nickname
 
 ## Output Schema
 

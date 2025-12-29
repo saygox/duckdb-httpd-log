@@ -886,6 +886,7 @@ void HttpdLogTableFunction::RegisterFunction(ExtensionLoader &loader) {
 	MultiFileFunction<HttpdLogMultiFileInfo> table_function("read_httpd_log");
 	table_function.named_parameters["format_type"] = LogicalType::VARCHAR;
 	table_function.named_parameters["format_str"] = LogicalType::VARCHAR;
+	table_function.named_parameters["conf"] = LogicalType::VARCHAR;
 	table_function.named_parameters["raw"] = LogicalType::BOOLEAN;
 
 	// Register the function
