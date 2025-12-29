@@ -6,29 +6,45 @@ The `read_httpd_log` function reads and parses Apache HTTP server log files.
 
 This function parses Apache access log files and returns them as a queryable table. It supports:
 
-- Common Log Format and Combined Log Format
+- Common Log Format and Combined Log Format (auto-detected)
+- Glob patterns, S3, gzip, and other sources via DuckDB's filesystem layer
+- Automatic format selection from httpd.conf
+- Parsed and normalized data (timestamps converted to UTC, request lines decomposed)
 - Custom formats via Apache LogFormat syntax
-- Format lookup from httpd.conf files
-- Glob patterns for reading multiple files
+- Dynamic schema generation with automatic column collision resolution
 
 ## Usage
 
 ```sql
--- Read with default common format
+-- Basic usage (format auto-detected)
 SELECT * FROM read_httpd_log('access.log');
 
--- Read with combined format
-SELECT * FROM read_httpd_log('access.log', format_type='combined');
+-- Read from S3 or gzip
+SELECT * FROM read_httpd_log('s3://bucket/logs/*.log.gz');
+
+-- Auto-select format from httpd.conf
+SELECT * FROM read_httpd_log('access.log', conf='/etc/httpd/conf/httpd.conf');
 
 -- Read with custom format string
 SELECT * FROM read_httpd_log('access.log',
     format_str='%h %l %u %t "%r" %>s %b %D');
+```
 
--- Read using format from httpd.conf
-SELECT * FROM read_httpd_log('access.log', conf='/etc/httpd/conf/httpd.conf');
-
--- Read multiple files with glob pattern
-SELECT * FROM read_httpd_log('logs/*.log');
+```sql
+-- Timestamps are converted to UTC, request lines decomposed into method/path/etc.
+SELECT client_ip, timestamp, method, path, status
+FROM read_httpd_log('access.log')
+LIMIT 3;
+```
+```
+┌─────────────┬─────────────────────┬────────┬──────────────┬────────┐
+│  client_ip  │      timestamp      │ method │     path     │ status │
+│   varchar   │      timestamp      │ varchar│   varchar    │ int32  │
+├─────────────┼─────────────────────┼────────┼──────────────┼────────┤
+│ 192.168.1.1 │ 2024-01-15 08:23:45 │ GET    │ /index.html  │    200 │
+│ 192.168.1.2 │ 2024-01-15 08:23:46 │ POST   │ /api/login   │    201 │
+│ 192.168.1.3 │ 2024-01-15 08:23:47 │ GET    │ /style.css   │    304 │
+└─────────────┴─────────────────────┴────────┴──────────────┴────────┘
 ```
 
 ## Parameters
@@ -42,32 +58,6 @@ SELECT * FROM read_httpd_log('logs/*.log');
 | `raw` | BOOLEAN | Include diagnostic columns (default: false) |
 
 ## Output Schema
-
-### Schema Variations
-
-| Format | Columns (raw=false) | Columns (raw=true) |
-|--------|---------------------|-------------------|
-| Common | 11 | 13 |
-| Combined | 13 | 15 |
-| Custom | Varies | +2 diagnostic columns |
-
-### Common Format
-
-Apache's standard "Common Log Format":
-```
-LogFormat "%h %l %u %t \"%r\" %>s %b" common
-```
-
-**Columns:** `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `log_file`
-
-### Combined Format
-
-Apache's "Combined Log Format":
-```
-LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined
-```
-
-**Columns:** All Common format columns plus `referer`, `user_agent`
 
 ### Diagnostic Columns (raw=true only)
 
@@ -90,35 +80,32 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `ident` | VARCHAR | `%l` | ✓ | ✓ | Remote logname from identd (usually "-") |
 | `auth_user` | VARCHAR | `%u` | ✓ | ✓ | Authenticated username from HTTP auth |
 | `timestamp` | TIMESTAMP | `%t` or `%{format}t` | ✓ | ✓ | Parsed request timestamp (converted to UTC) |
-| `request` | VARCHAR | `%r` | ✓ | ✓ | Full request line |
 | `method` | VARCHAR | `%m` or `%r` | ✓ | ✓ | HTTP method (GET, POST, etc.) |
-| `path` | VARCHAR | `%U` or `%r` | ✓ | ✓ | Request URL path (without query string) |
+| `path` | VARCHAR | `%>U`, `%U`, or `%r` | ✓ | ✓ | Request URL path (without query string) |
+| `path_original` | VARCHAR | `%U` ( + `%>U` ), `%<U` | ✓ | ✓ | Original path (when both present) |
 | `query_string` | VARCHAR | `%q` or `%r` | ✓ | ✓ | Query string (including leading ?) |
 | `protocol` | VARCHAR | `%H` or `%r` | ✓ | ✓ | HTTP protocol version |
-| `status` | INTEGER | `%s` or `%>s` | ✓ | ✓ | HTTP status code |
-| `status_original` | INTEGER | `%s` ( + `%>s` ) | ✓ | ✓ | Original status (when `%s` and `%>s` both present) |
-| `bytes` | BIGINT | `%b` or `%B` | ✓ | ✓ | Response size in bytes |
+| `status` | INTEGER | `%>s`, `%s` | ✓ | ✓ | HTTP status code |
+| `status_original` | INTEGER | `%s` ( + `%>s` ), `%<s` | ✓ | ✓ | Original status (when both present) |
+| `bytes` | BIGINT | `%B`, `%b` | ✓ | ✓ | Response size in bytes |
 | `bytes_clf` | BIGINT | `%b` ( + `%B` ) | ✓ | ✓ | CLF format bytes (when `%b` and `%B` both present) |
 | `bytes_received` | BIGINT | `%I` | ✓ | ✓ | Bytes received including headers (mod_logio) |
 | `bytes_sent` | BIGINT | `%O` | ✓ | ✓ | Bytes sent including headers (mod_logio) |
 | `bytes_transferred` | BIGINT | `%S` | ✓ | ✓ | Total bytes transferred (mod_logio) |
-| `server_name` | VARCHAR | `%v` or `%V` | ✓ | ✓ | Server name |
+| `server_name` | VARCHAR | `%v`, `%V` | ✓ | ✓ | Server name |
 | `server_name_used` | VARCHAR | `%v` ( + `%V` ) | ✓ | ✓ | Server name used (when `%v` and `%V` both present) |
 | `server_port` | INTEGER | `%p` or `%{canonical}p` | ✓ | ✓ | Canonical server port (%p takes priority when both present) |
 | `local_port` | INTEGER | `%{local}p` | ✓ | ✓ | Server's actual port |
 | `remote_port` | INTEGER | `%{remote}p` | ✓ | ✓ | Client's actual port |
-| `duration` | INTERVAL | `%D`, `%T`, or `%{UNIT}T` | ✓ | ✓ | Request duration (highest precision kept when multiple present) |
+| `duration` | INTERVAL | `%>D`, `%D`, `%>T`, `%T`, or `%{UNIT}T` | ✓ | ✓ | Request duration (highest precision kept when multiple present) |
+| `duration_original` | INTERVAL | `%D` ( + `%>D` ), `%<D`, `%T` ( + `%>T` ), `%<T` | ✓ | ✓ | Original duration (when both present) |
 | `keepalive_count` | INTEGER | `%k` | ✓ | ✓ | Number of keepalive requests on this connection |
 | `connection_status` | VARCHAR | `%X` | ✓ | ✓ | Connection status: `aborted`, `keepalive`, or `close` |
 | `process_id` | INTEGER | `%P` or `%{pid}P` | ✓ | ✓ | Server process ID (%P takes priority when both present) |
 | `thread_id` | BIGINT | `%{tid}P` | ✓ | ✓ | Server thread ID |
 | `thread_id_hex` | VARCHAR | `%{hextid}P` | ✓ | ✓ | Server thread ID in hexadecimal format |
 | `{header_name}` | VARCHAR | `%{Header}i` or `%{Header}o` | ✓ | ✓ | Request or response header |
-| `{header_name}_in` | VARCHAR | `%{Header}i` ( + `%{Header}o` ) | ✓ | ✓ | Request header (when both present) |
-| `{header_name}_out` | VARCHAR | `%{Header}o` ( + `%{Header}i` ) | ✓ | ✓ | Response header (when both present) |
 | `content_length` | BIGINT | `%{Content-Length}i` or `%{Content-Length}o` | ✓ | ✓ | Request or response Content-Length |
-| `content_length_in` | BIGINT | `%{Content-Length}i` ( + `%{Content-Length}o` ) | ✓ | ✓ | Request Content-Length (when both present) |
-| `content_length_out` | BIGINT | `%{Content-Length}o` ( + `%{Content-Length}i` ) | ✓ | ✓ | Response Content-Length (when both present) |
 | `age` | INTEGER | `%{Age}o` | ✓ | ✓ | Response Age header |
 | `max_forwards` | INTEGER | `%{Max-Forwards}i` | ✓ | ✓ | Request Max-Forwards header |
 | `{cookie_name}` | VARCHAR | `%{Name}C` | ✓ | ✓ | Cookie value |
@@ -140,21 +127,6 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 - Same directive twice produces `column`, `column_2`
 
 ## Advanced Topics
-
-### Original/Final Request Modifiers
-
-Apache supports `<` and `>` modifiers for directives that can refer to original or final (redirected) requests:
-
-| Modifier | Meaning | Example |
-|----------|---------|---------|
-| `%>X` | Final request value | `%>s` (final status) |
-| `%<X` | Original request value | `%<s` (original status) |
-| `%X` | Default (depends on directive) | `%s` (original status) |
-
-When both are present, `>` (final) gets the base name and others get `_original` suffix:
-```sql
-format_str='... %s %>s ...'   -- status_original, status
-```
 
 ### Column Name Collision Resolution
 
@@ -181,19 +153,7 @@ format_str='%{X}i %{X}i %{X}i'  -- x, x_2, x_3
 
 ### Timestamp Formats
 
-The `%{format}t` directive supports multiple timestamp formats:
-
-| Format | Description | Example Value |
-|--------|-------------|---------------|
-| `%t` | Standard Apache format | `[10/Oct/2000:13:55:36 -0700]` |
-| `%{sec}t` | Seconds since Unix epoch | `1609459200` |
-| `%{msec}t` | Milliseconds since Unix epoch | `1609459200123` |
-| `%{usec}t` | Microseconds since Unix epoch | `1609459200123456` |
-| `%{msec_frac}t` | Millisecond fraction | `123` |
-| `%{usec_frac}t` | Microsecond fraction | `123456` |
-| `%{strftime}t` | Custom strftime format | `2021-01-01 13:55:36` |
-
-Multiple timestamp directives are automatically combined into a single `timestamp` column. All timestamps are converted to UTC.
+Timestamp directives follow [Apache mod_log_config](https://httpd.apache.org/docs/2.4/mod/mod_log_config.html) syntax. Multiple timestamp directives are automatically combined into a single `timestamp` column (converted to UTC).
 
 ## Examples
 
