@@ -87,28 +87,27 @@ LOAD 'build/release/extension/httpd_log/httpd_log.duckdb_extension';
 SELECT * FROM read_httpd_log('../testdata/access.log') LIMIT 5;
 
 -- 全カラムの存在確認
-SELECT 
-    client_ip, 
-    ident, 
-    auth_user, 
-    timestamp, 
-    timestamp_raw,
-    method, 
-    path, 
-    protocol, 
-    status, 
+SELECT
+    client_ip,
+    ident,
+    auth_user,
+    timestamp,
+    method,
+    path,
+    protocol,
+    status,
     bytes,
     filename,
     parse_error,
     raw_line
-FROM read_httpd_log('../testdata/access.log') LIMIT 1;
+FROM read_httpd_log('../testdata/access.log', raw=true) LIMIT 1;
 
 -- パース成功行のみ
-SELECT COUNT(*) FROM read_httpd_log('../testdata/access.log') 
+SELECT COUNT(*) FROM read_httpd_log('../testdata/access.log', raw=true)
 WHERE parse_error = false;
 
 -- パース失敗行の確認
-SELECT raw_line FROM read_httpd_log('../testdata/access_with_errors.log') 
+SELECT raw_line FROM read_httpd_log('../testdata/access_with_errors.log', raw=true)
 WHERE parse_error = true;
 
 -- gzip対応確認

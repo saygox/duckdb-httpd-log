@@ -23,7 +23,7 @@ LIMIT 3;
 192.168.1.2	NULL	alice	2000-10-10 20:56:45	201	150	test/data/common/sample.log
 192.168.1.3	NULL	NULL	2000-10-10 20:57:12	304	0	test/data/common/sample.log
 
-# Test 2: Verify schema without raw mode (11 columns: no timestamp_raw, parse_error, raw_line)
+# Test 2: Verify schema without raw mode (11 columns: no parse_error, raw_line)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log')
@@ -31,13 +31,13 @@ SELECT COUNT(*) FROM (
 ----
 11
 
-# Test 3: Verify schema with raw mode (14 columns: includes timestamp_raw, parse_error, raw_line)
+# Test 3: Verify schema with raw mode (13 columns: includes parse_error, raw_line)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', raw=true)
 );
 ----
-14
+13
 
 # Test 4: Verify raw=false skips parse error rows
 query I
@@ -85,13 +85,7 @@ SELECT raw_line FROM read_httpd_log('test/data/common/with_errors.log');
 ----
 Binder Error: Referenced column "raw_line" not found in FROM clause
 
-# Test 10: Verify timestamp_raw column does not exist with raw=false
-statement error
-SELECT timestamp_raw FROM read_httpd_log('test/data/common/sample.log');
-----
-Binder Error: Referenced column "timestamp_raw" not found in FROM clause
-
-# Test 11: Verify all 14 columns are returned with raw=true
+# Test 10: Verify all 13 columns are returned with raw=true
 query I
 SELECT COUNT(*) FROM (
     SELECT
@@ -99,7 +93,6 @@ SELECT COUNT(*) FROM (
         ident,
         auth_user,
         timestamp,
-        timestamp_raw,
         method,
         path,
         query_string,
@@ -114,7 +107,7 @@ SELECT COUNT(*) FROM (
 ----
 6
 
-# Test 12: Test HTTP method extraction with raw=false (no WHERE needed)
+# Test 11: Test HTTP method extraction with raw=false (no WHERE needed)
 query TI
 SELECT method, COUNT(*) as count
 FROM read_httpd_log('test/data/common/sample.log')
@@ -124,17 +117,7 @@ ORDER BY method;
 GET	5
 POST	1
 
-# Test 13: Verify timestamp_raw is populated with raw=true
-query T
-SELECT timestamp_raw
-FROM read_httpd_log('test/data/common/sample.log', raw=true)
-WHERE parse_error = false
-ORDER BY timestamp
-LIMIT 1;
-----
-10/Oct/2000:13:55:36 -0700
-
-# Test 14: Test status codes with raw=false (auto-skips errors)
+# Test 12: Test status codes with raw=false (auto-skips errors)
 query II
 SELECT status, COUNT(*) as count
 FROM read_httpd_log('test/data/common/sample.log')
@@ -147,7 +130,7 @@ ORDER BY status;
 403	1
 404	1
 
-# Test 15: Test path extraction with raw=false
+# Test 13: Test path extraction with raw=false
 query TI
 SELECT path, COUNT(*) as count
 FROM read_httpd_log('test/data/common/sample.log')
@@ -156,47 +139,47 @@ GROUP BY path;
 ----
 /index.html	1
 
-# Test 16: Error - invalid file path
+# Test 14: Error - invalid file path
 statement error
 SELECT * FROM read_httpd_log('nonexistent.log');
 ----
 IO Error: No files found that match the pattern "nonexistent.log"
 
-# Test 17: Error - too many arguments (named parameters don't support positional)
+# Test 15: Error - too many arguments (named parameters don't support positional)
 statement error
 SELECT * FROM read_httpd_log('test/data/common/sample.log', 'common', 'extra');
 ----
 Binder Error: No function matches the given name and argument types
 
-# Test 18: Test with glob pattern
+# Test 16: Test with glob pattern
 query I
 SELECT COUNT(DISTINCT log_file)
 FROM read_httpd_log('test/data/multi_file/server*.log');
 ----
 3
 
-# Test 19: Test bytes field with raw=false
+# Test 17: Test bytes field with raw=false
 query I
 SELECT SUM(bytes)
 FROM read_httpd_log('test/data/common/sample.log');
 ----
 9900
 
-# Test 20: Count total records across common format files (raw=false skips errors)
+# Test 18: Count total records across common format files (raw=false skips errors)
 query I
 SELECT COUNT(*)
 FROM read_httpd_log('test/data/common/*.log');
 ----
 9
 
-# Test 21: Count total records with raw=true (includes errors)
+# Test 19: Count total records with raw=true (includes errors)
 query I
 SELECT COUNT(*)
 FROM read_httpd_log('test/data/common/*.log', raw=true);
 ----
 11
 
-# Test 22: Verify column names with raw=false (should be 11 columns)
+# Test 20: Verify column names with raw=false (should be 11 columns)
 query TTTTTTTTTTT
 SELECT
     client_ip,
@@ -215,14 +198,13 @@ LIMIT 1;
 ----
 192.168.1.1	NULL	frank	2000-10-10 20:55:36	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log
 
-# Test 23: Verify column names with raw=true (should be 14 columns)
-query TTTTTTTTTTTITT
+# Test 21: Verify column names with raw=true (should be 13 columns)
+query TTTTTTTTTTITT
 SELECT
     client_ip,
     ident,
     auth_user,
     timestamp,
-    timestamp_raw,
     method,
     path,
     query_string,
@@ -235,9 +217,9 @@ SELECT
 FROM read_httpd_log('test/data/common/sample.log', raw=true)
 LIMIT 1;
 ----
-192.168.1.1	NULL	frank	2000-10-10 20:55:36	10/Oct/2000:13:55:36 -0700	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log	0	192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326
+192.168.1.1	NULL	frank	2000-10-10 20:55:36	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log	0	192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326
 
-# Test 24: Verify raw_line is populated for successful parses with raw=true
+# Test 22: Verify raw_line is populated for successful parses with raw=true
 query I
 SELECT COUNT(*)
 FROM read_httpd_log('test/data/common/sample.log', raw=true)
@@ -245,14 +227,14 @@ WHERE parse_error = false AND raw_line IS NOT NULL;
 ----
 6
 
-# Test 25: Verify both raw=true and format_type work together
+# Test 23: Verify both raw=true and format_type work together
 query I
 SELECT COUNT(*)
 FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true);
 ----
 6
 
-# Test 26: Verify error message when trying to access diagnostic columns without raw=true
+# Test 24: Verify error message when trying to access diagnostic columns without raw=true
 statement error
 SELECT parse_error, raw_line FROM read_httpd_log('test/data/common/sample.log');
 ----

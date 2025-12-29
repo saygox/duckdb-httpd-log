@@ -663,15 +663,10 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 			continue;
 		}
 
-		// Special handling for %t (timestamp) - add timestamp and optionally timestamp_raw
+		// Special handling for %t (timestamp)
 		if (field.directive == "%t") {
 			names.push_back("timestamp");
 			return_types.push_back(LogicalType::TIMESTAMP);
-			// timestamp_raw is only included in raw mode
-			if (include_raw_columns) {
-				names.push_back("timestamp_raw");
-				return_types.push_back(LogicalType::VARCHAR);
-			}
 		}
 		// Special handling for %r variants (request) - decompose into method, path, query_string, protocol
 		// Skip sub-columns that are overridden by individual directives (%m, %U, %q, %H)

@@ -11,9 +11,9 @@ The output schema varies based on two parameters:
 ### Schema Variations
 
 - **Common format** with `raw=false` (default): **11 columns**
-- **Common format** with `raw=true`: **14 columns** (adds 3 diagnostic columns)
+- **Common format** with `raw=true`: **13 columns** (adds 2 diagnostic columns)
 - **Combined format** with `raw=false`: **13 columns**
-- **Combined format** with `raw=true`: **16 columns** (adds 3 diagnostic columns)
+- **Combined format** with `raw=true`: **15 columns** (adds 2 diagnostic columns)
 
 ## Supported Directives
 
@@ -29,7 +29,6 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `ident` | VARCHAR | `%l` | ✓ | ✓ | Remote logname from identd (usually "-") |
 | `auth_user` | VARCHAR | `%u` | ✓ | ✓ | Authenticated username from HTTP auth |
 | `timestamp` | TIMESTAMP | `%t` or `%{format}t` | ✓ | ✓ | Parsed request timestamp (converted to UTC) |
-| `timestamp_raw` | VARCHAR | `%t` or `%{format}t` | ✗ | ✓ | Original timestamp string |
 | `request` | VARCHAR | `%r` | ✓ | ✓ | Full request line |
 | `method` | VARCHAR | `%m` or `%r` | ✓ | ✓ | HTTP method (GET, POST, etc.) |
 | `path` | VARCHAR | `%U` or `%r` | ✓ | ✓ | Request URL path (without query string) |
@@ -222,7 +221,7 @@ LogFormat "%h %l %u %t \"%r\" %>s %b" common
 **Columns (raw=false):** 11 columns
 - `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `log_file`
 
-**Columns (raw=true):** 14 columns (adds `timestamp_raw`, `parse_error`, `raw_line`)
+**Columns (raw=true):** 13 columns (adds `parse_error`, `raw_line`)
 
 ### Combined Format
 
@@ -234,7 +233,7 @@ LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combine
 **Columns (raw=false):** 13 columns
 - All Common format columns plus `referer`, `user_agent`
 
-**Columns (raw=true):** 16 columns (adds `timestamp_raw`, `parse_error`, `raw_line`)
+**Columns (raw=true):** 15 columns (adds `parse_error`, `raw_line`)
 
 ### Custom Formats
 

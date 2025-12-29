@@ -434,24 +434,6 @@ void HttpdLogFileReader::WriteColumnValue(Vector &vec, idx_t row_idx, idx_t sche
 				}
 				current_schema_col++;
 
-				// timestamp_raw column (only in raw mode)
-				if (raw_mode) {
-					if (current_schema_col == schema_col_id) {
-						if (parse_error) {
-							FlatVector::GetData<string_t>(vec)[row_idx] = StringVector::AddString(vec, "");
-						} else {
-							idx_t temp_value_idx = value_idx;
-							timestamp_t ts;
-							string raw_combined;
-							CombineTimestampGroup(parsed_format, group, parsed_values, temp_value_idx, ts,
-							                      raw_combined);
-							FlatVector::GetData<string_t>(vec)[row_idx] = StringVector::AddString(vec, raw_combined);
-						}
-						return;
-					}
-					current_schema_col++;
-				}
-
 				value_idx += group.field_indices.size();
 			} else if (group_id < 0) {
 				// Single %t not in a group
@@ -470,19 +452,6 @@ void HttpdLogFileReader::WriteColumnValue(Vector &vec, idx_t row_idx, idx_t sche
 					return;
 				}
 				current_schema_col++;
-
-				if (raw_mode) {
-					if (current_schema_col == schema_col_id) {
-						if (parse_error) {
-							FlatVector::GetData<string_t>(vec)[row_idx] = StringVector::AddString(vec, "");
-						} else {
-							FlatVector::GetData<string_t>(vec)[row_idx] =
-							    StringVector::AddString(vec, parsed_values[value_idx]);
-						}
-						return;
-					}
-					current_schema_col++;
-				}
 
 				value_idx++;
 			}

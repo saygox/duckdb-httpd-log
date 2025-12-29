@@ -75,15 +75,14 @@ ORDER BY timestamp DESC;
 | ident | VARCHAR | identd識別子（通常は"-"） |
 | auth_user | VARCHAR | 認証ユーザー名 |
 | timestamp | TIMESTAMP | リクエスト日時（UTC正規化） |
-| timestamp_raw | VARCHAR | リクエスト日時（元の文字列、オフセット付き） |
 | method | VARCHAR | HTTPメソッド（GET, POSTなど） |
 | path | VARCHAR | リクエストパス |
 | protocol | VARCHAR | プロトコル（HTTP/1.0, HTTP/1.1など） |
 | status | INTEGER | HTTPステータスコード |
 | bytes | BIGINT | レスポンスサイズ（バイト） |
 | filename | VARCHAR | ソースファイル名 |
-| parse_error | BOOLEAN | パース失敗フラグ |
-| raw_line | VARCHAR | パース失敗時の生データ（成功時はNULL） |
+| parse_error | BOOLEAN | パース失敗フラグ（raw=true時のみ） |
+| raw_line | VARCHAR | 元のログ行（raw=true時のみ） |
 
 ## パース失敗時の挙動
 

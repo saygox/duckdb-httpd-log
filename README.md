@@ -130,11 +130,11 @@ See [Schema Documentation](docs/schema.md#typed-http-headers) for more details.
 
 The `read_httpd_log` function returns a table with columns determined by the `format_type` and `raw` parameters:
 
-- **Common format**: 10 columns (default) or 13 columns with `raw=true`
-- **Combined format**: 12 columns (default) or 15 columns with `raw=true`
+- **Common format**: 11 columns (default) or 13 columns with `raw=true`
+- **Combined format**: 13 columns (default) or 15 columns with `raw=true`
 - **Custom formats**: Schema dynamically generated based on `format_str` directives
 
-The `raw` parameter controls visibility of diagnostic columns (`timestamp_raw`, `parse_error`, `raw_line`):
+The `raw` parameter controls visibility of diagnostic columns (`parse_error`, `raw_line`):
 - **`raw=false`** (default): Diagnostic columns are hidden, parse errors are excluded from results
 - **`raw=true`**: Diagnostic columns are included, all rows (including parse errors) are returned
 
@@ -143,7 +143,7 @@ The `raw` parameter controls visibility of diagnostic columns (`timestamp_raw`, 
 ### Quick Example
 
 ```sql
--- Default: 10 columns, parse errors excluded
+-- Default: 11 columns, parse errors excluded
 SELECT client_ip, method, path, status, bytes
 FROM read_httpd_log('access.log');
 
