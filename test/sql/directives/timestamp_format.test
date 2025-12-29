@@ -1,0 +1,196 @@
+# name: test/sql/directives/timestamp_format.test
+# description: Tests for %{format}t timestamp directives
+# group: [directives]
+
+require httpd_log
+
+# =============================================================================
+# Test Group 1: Basic epoch-based timestamps
+# =============================================================================
+
+# Test 1: %{sec}t - seconds since epoch - type check
+query T
+SELECT typeof(timestamp)
+FROM read_httpd_log(
+    'test/data/directives/timestamp_sec.log',
+    format_str='%h %{sec}t'
+)
+LIMIT 1;
+----
+TIMESTAMP
+
+# Test 2: %{sec}t - timestamp value
+query T
+SELECT timestamp::VARCHAR
+FROM read_httpd_log(
+    'test/data/directives/timestamp_sec.log',
+    format_str='%h %{sec}t'
+)
+WHERE client_ip = '192.168.1.1';
+----
+2021-01-01 00:00:00
+
+# Test 3: %{sec}t - epoch 0
+query T
+SELECT timestamp::VARCHAR
+FROM read_httpd_log(
+    'test/data/directives/timestamp_sec.log',
+    format_str='%h %{sec}t'
+)
+WHERE client_ip = '192.168.1.2';
+----
+1970-01-01 00:00:00
+
+# Test 4: %{msec}t - milliseconds since epoch
+query T
+SELECT timestamp::VARCHAR
+FROM read_httpd_log(
+    'test/data/directives/timestamp_msec.log',
+    format_str='%h %{msec}t'
+)
+WHERE client_ip = '192.168.1.1';
+----
+2021-01-01 00:00:00
+
+# Test 5: %{msec}t - with milliseconds
+query T
+SELECT timestamp::VARCHAR
+FROM read_httpd_log(
+    'test/data/directives/timestamp_msec.log',
+    format_str='%h %{msec}t'
+)
+WHERE client_ip = '192.168.1.2';
+----
+2021-01-01 00:00:00.123
+
+# Test 6: %{usec}t - microseconds since epoch
+query T
+SELECT timestamp::VARCHAR
+FROM read_httpd_log(
+    'test/data/directives/timestamp_usec.log',
+    format_str='%h %{usec}t'
+)
+WHERE client_ip = '192.168.1.2';
+----
+2021-01-01 00:00:00.123456
+
+# =============================================================================
+# Test Group 2: Fractional timestamps with %t
+# =============================================================================
+
+# Test 7: %t %{msec_frac}t - combined timestamp with millisecond fraction
+query T
+SELECT timestamp::VARCHAR
+FROM read_httpd_log(
+    'test/data/directives/timestamp_frac.log',
+    format_str='%h %l %u %t %{msec_frac}t'
+)
+WHERE client_ip = '192.168.1.1';
+----
+2021-01-01 20:55:36.123
+
+# Test 8: %t %{usec_frac}t - combined timestamp with microsecond fraction
+query T
+SELECT timestamp::VARCHAR
+FROM read_httpd_log(
+    'test/data/directives/timestamp_usec_frac.log',
+    format_str='%h %l %u %t %{usec_frac}t'
+)
+WHERE client_ip = '192.168.1.1';
+----
+2021-01-01 20:55:36.123456
+
+# Test 9: Combined produces single timestamp column
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/timestamp_frac.log',
+        format_str='%h %l %u %t %{msec_frac}t'
+    )
+)
+WHERE column_name = 'timestamp';
+----
+1
+
+# =============================================================================
+# Test Group 3: strftime format timestamps
+# =============================================================================
+
+# Test 10: %{%Y-%m-%d %H:%M:%S}t - ISO-like format
+query T
+SELECT timestamp::DATE::VARCHAR
+FROM read_httpd_log(
+    'test/data/directives/timestamp_strftime.log',
+    format_str='%h %{%Y-%m-%d %H:%M:%S}t'
+)
+WHERE client_ip = '192.168.1.1';
+----
+2021-01-01
+
+# Test 11: %{%d/%b/%Y %T}t %{%z}t - Apache-like format with timezone
+query T
+SELECT timestamp::VARCHAR
+FROM read_httpd_log(
+    'test/data/directives/timestamp_strftime_tz.log',
+    format_str='%h %{%d/%b/%Y %T}t %{%z}t'
+)
+WHERE client_ip = '192.168.1.1';
+----
+2021-01-01 20:55:36
+
+# =============================================================================
+# Test Group 4: Combined strftime with fractional
+# =============================================================================
+
+# Test 12: %{%d/%b/%Y %T}t.%{msec_frac}t %{%z}t - full combined format
+query T
+SELECT timestamp::VARCHAR
+FROM read_httpd_log(
+    'test/data/directives/timestamp_combined.log',
+    format_str='%h %{%d/%b/%Y}t %{%T}t.%{msec_frac}t %{%z}t'
+)
+WHERE client_ip = '192.168.1.1';
+----
+2021-01-01 20:55:36.123
+
+# Test 13: Combined format produces single timestamp column
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/timestamp_combined.log',
+        format_str='%h %{%d/%b/%Y}t %{%T}t.%{msec_frac}t %{%z}t'
+    )
+)
+WHERE column_name = 'timestamp';
+----
+1
+
+# =============================================================================
+# Test Group 5: Compatibility with existing %t
+# =============================================================================
+
+# Test 14: Plain %t still works with brackets
+query T
+SELECT timestamp::DATE::VARCHAR
+FROM read_httpd_log(
+    'test/data/common/sample.log',
+    format_str='%h %l %u %t "%r" %>s %b'
+)
+LIMIT 1;
+----
+2000-10-10
+
+# Test 15: Plain %t schema compatibility
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/common/sample.log',
+        format_str='%h %l %u %t "%r" %>s %b'
+    )
+)
+WHERE column_name = 'timestamp';
+----
+1

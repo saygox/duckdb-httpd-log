@@ -46,6 +46,17 @@ struct TypedHeaderRule {
 	}
 };
 
+// Timestamp format type for %{format}t directive
+enum class TimestampFormatType {
+	APACHE_DEFAULT, // Plain %t - bracketed Apache format [DD/MMM/YYYY:HH:MM:SS TZ]
+	EPOCH_SEC,      // %{sec}t - seconds since epoch
+	EPOCH_MSEC,     // %{msec}t - milliseconds since epoch
+	EPOCH_USEC,     // %{usec}t - microseconds since epoch
+	FRAC_MSEC,      // %{msec_frac}t - millisecond fraction (000-999)
+	FRAC_USEC,      // %{usec_frac}t - microsecond fraction (000000-999999)
+	STRFTIME        // %{strftime_format}t - custom strftime format
+};
+
 // Represents a single field in the log format
 struct FormatField {
 	string directive;   // The format directive (e.g., "%h", "%t", "%{Referer}i")
@@ -61,11 +72,30 @@ struct FormatField {
 	bool skip_query_string; // Skip query_string column from %r (when %q is present)
 	bool skip_protocol;     // Skip protocol column from %r (when %H is present)
 
+	// Timestamp-related fields for %t and %{format}t directives
+	int timestamp_group_id;             // Group ID for combining multiple %t directives (-1 if not grouped)
+	TimestampFormatType timestamp_type; // Type of timestamp format
+	string strftime_format;             // For STRFTIME type: the format string (e.g., "%d/%b/%Y %T")
+
 	FormatField(string directive_p, string column_name_p, LogicalType type_p, bool is_quoted_p = false,
 	            string modifier_p = "", bool should_skip_p = false)
 	    : directive(std::move(directive_p)), column_name(std::move(column_name_p)), type(std::move(type_p)),
-	      is_quoted(is_quoted_p), modifier(std::move(modifier_p)), should_skip(should_skip_p),
-	      skip_method(false), skip_path(false), skip_query_string(false), skip_protocol(false) {
+	      is_quoted(is_quoted_p), modifier(std::move(modifier_p)), should_skip(should_skip_p), skip_method(false),
+	      skip_path(false), skip_query_string(false), skip_protocol(false), timestamp_group_id(-1),
+	      timestamp_type(TimestampFormatType::APACHE_DEFAULT) {
+	}
+};
+
+// Group of timestamp fields that should be combined into a single timestamp
+struct TimestampGroup {
+	vector<idx_t> field_indices; // Indices of fields in this group
+	bool has_epoch_component;    // True if any sec/msec/usec present
+	bool has_strftime_component; // True if any strftime format present
+	bool has_plain_t;            // True if plain %t present
+	bool has_frac_component;     // True if any msec_frac/usec_frac present
+
+	TimestampGroup()
+	    : has_epoch_component(false), has_strftime_component(false), has_plain_t(false), has_frac_component(false) {
 	}
 };
 
@@ -75,6 +105,9 @@ struct ParsedFormat {
 	string original_format_str;                 // Original format string
 	string regex_pattern;                       // Generated regex pattern for parsing
 	unique_ptr<duckdb_re2::RE2> compiled_regex; // Pre-compiled RE2 for performance
+
+	// Timestamp groups for combining multiple %t directives into single timestamp
+	vector<TimestampGroup> timestamp_groups;
 
 	// Reusable buffers for RE2::FullMatchN to eliminate per-line heap allocations
 	// These buffers are allocated once in ParseFormatString() and reused across

@@ -28,8 +28,8 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `local_ip` | VARCHAR | `%A` | ✓ | ✓ | Server local IP address |
 | `ident` | VARCHAR | `%l` | ✓ | ✓ | Remote logname from identd (usually "-") |
 | `auth_user` | VARCHAR | `%u` | ✓ | ✓ | Authenticated username from HTTP auth |
-| `timestamp` | TIMESTAMP | `%t` | ✓ | ✓ | Parsed request timestamp (converted to UTC) |
-| `timestamp_raw` | VARCHAR | `%t` | ✗ | ✓ | Original timestamp string |
+| `timestamp` | TIMESTAMP | `%t` or `%{format}t` | ✓ | ✓ | Parsed request timestamp (converted to UTC) |
+| `timestamp_raw` | VARCHAR | `%t` or `%{format}t` | ✗ | ✓ | Original timestamp string |
 | `request` | VARCHAR | `%r` | ✓ | ✓ | Full request line |
 | `method` | VARCHAR | `%m` or `%r` | ✓ | ✓ | HTTP method (GET, POST, etc.) |
 | `path` | VARCHAR | `%U` or `%r` | ✓ | ✓ | Request URL path (without query string) |
@@ -78,6 +78,71 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 - When `%r` is used with individual directives (`%m`, `%U`, `%q`, `%H`), the individual directive takes priority and no duplicate column is created
 - Header names are converted to lowercase with hyphens replaced by underscores (e.g., `User-Agent` → `user_agent`)
 - Same directive twice produces `column`, `column_2`
+
+## Timestamp Formats (`%{format}t`)
+
+The `%{format}t` directive supports multiple timestamp formats. When multiple timestamp-related directives are used together, they are combined into a single `timestamp` column.
+
+### Supported Format Tokens
+
+| Format | Description | Example Value |
+|--------|-------------|---------------|
+| `%t` | Standard Apache format with brackets | `[10/Oct/2000:13:55:36 -0700]` |
+| `%{sec}t` | Seconds since Unix epoch | `1609459200` |
+| `%{msec}t` | Milliseconds since Unix epoch | `1609459200123` |
+| `%{usec}t` | Microseconds since Unix epoch | `1609459200123456` |
+| `%{msec_frac}t` | Millisecond fraction (000-999) | `123` |
+| `%{usec_frac}t` | Microsecond fraction (000000-999999) | `123456` |
+| `%{strftime}t` | Custom strftime format (e.g., `%{%Y-%m-%d %H:%M:%S}t`) | `2021-01-01 13:55:36` |
+
+### Strftime Format Specifiers
+
+Common strftime specifiers for `%{strftime}t`:
+
+| Specifier | Description | Example |
+|-----------|-------------|---------|
+| `%Y` | 4-digit year | `2021` |
+| `%m` | Month (01-12) | `01` |
+| `%d` | Day (01-31) | `15` |
+| `%b` | Abbreviated month name | `Jan` |
+| `%H` | Hour (00-23) | `13` |
+| `%M` | Minute (00-59) | `55` |
+| `%S` | Second (00-59) | `36` |
+| `%T` | Time (%H:%M:%S) | `13:55:36` |
+| `%z` | UTC offset | `-0700` |
+
+### Combining Multiple Timestamp Directives
+
+Multiple `%t`/`%{format}t` directives in a format string are automatically combined into a single timestamp:
+
+```sql
+-- Epoch seconds
+SELECT * FROM read_httpd_log(
+    'access.log',
+    format_str='%h %{sec}t'
+);
+
+-- Milliseconds with fractional component
+SELECT * FROM read_httpd_log(
+    'access.log',
+    format_str='%h %l %u %t %{usec_frac}t'
+);
+-- Combines standard %t timestamp with microsecond fraction
+
+-- Custom strftime format with timezone
+SELECT * FROM read_httpd_log(
+    'access.log',
+    format_str='%h %{%d/%b/%Y}t %{%T}t.%{msec_frac}t %{%z}t'
+);
+-- Parses: "192.168.1.1 01/Jan/2021 13:55:36.123 -0700"
+-- Result: 2021-01-01 20:55:36.123 (UTC)
+```
+
+### Timezone Handling
+
+- All timestamps are converted to UTC in the output
+- When `%z` or `%{%z}t` is present, the timezone offset is applied
+- Standard `%t` format includes timezone in brackets and is automatically converted
 
 ## Format-Specific Schemas
 
