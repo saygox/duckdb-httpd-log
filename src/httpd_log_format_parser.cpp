@@ -384,12 +384,28 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 			string modifier;
 			size_t start_pos = pos;
 
+			// Skip optional status code condition: %400,501{...} or %!200,304{...}
+			// These conditions filter logging by HTTP status code, but we ignore them
+			// and just parse the directive itself
+			size_t directive_start = pos + 1;
+			if (directive_start < format_str.length()) {
+				// Skip '!' if present (negation)
+				if (format_str[directive_start] == '!') {
+					directive_start++;
+				}
+				// Skip digits and commas (status codes like 400,501)
+				while (directive_start < format_str.length() &&
+				       (isdigit(format_str[directive_start]) || format_str[directive_start] == ',')) {
+					directive_start++;
+				}
+			}
+
 			// Check for modifiers like %{...}i, %{...}o, %{...}^ti, %{...}^to, %{...}t
-			if (pos + 1 < format_str.length() && format_str[pos + 1] == '{') {
+			if (directive_start < format_str.length() && format_str[directive_start] == '{') {
 				// Find the closing }
-				size_t close_pos = format_str.find('}', pos + 2);
+				size_t close_pos = format_str.find('}', directive_start + 1);
 				if (close_pos != string::npos && close_pos + 1 < format_str.length()) {
-					modifier = format_str.substr(pos + 2, close_pos - pos - 2);
+					modifier = format_str.substr(directive_start + 1, close_pos - directive_start - 1);
 					// Check for ^ti or ^to trailer directives
 					if (format_str[close_pos + 1] == '^' && close_pos + 3 < format_str.length()) {
 						directive = "%" + format_str.substr(close_pos + 1, 3); // %^ti or %^to
@@ -406,14 +422,21 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 					continue;
 				}
 			} else {
-				// Standard directive (1-2 characters after %)
-				directive = format_str.substr(pos, 2);
+				// Standard directive (1-2 characters after %) or with status condition
+				// For status conditions like %200s, directive_start points past the condition
+				size_t dir_start = (directive_start == pos + 1) ? pos : directive_start;
 
 				// Check for %>s or other multi-char directives
-				if (pos + 2 < format_str.length() && format_str[pos + 1] == '>') {
-					directive = format_str.substr(pos, 3);
-					pos += 3;
+				if (dir_start + 1 < format_str.length() && format_str[dir_start] == '%' &&
+				    format_str[dir_start + 1] == '>') {
+					directive = format_str.substr(dir_start, 3);
+					pos = dir_start + 3;
+				} else if (directive_start > pos + 1) {
+					// Status condition present, directive starts at directive_start
+					directive = "%" + string(1, format_str[directive_start]);
+					pos = directive_start + 1;
 				} else {
+					directive = format_str.substr(pos, 2);
 					pos += 2;
 				}
 			}

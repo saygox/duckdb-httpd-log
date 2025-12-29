@@ -782,9 +782,9 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						}
 					} else if (field.type.id() == LogicalTypeId::INTERVAL) {
 						try {
-							// Handle "-" as 0 for duration fields
+							// Handle "-" as NULL for duration fields (status condition may cause "-")
 							if (value == "-") {
-								FlatVector::GetData<interval_t>(output.data[col_idx])[output_idx] = {0, 0, 0};
+								FlatVector::SetNull(output.data[col_idx], output_idx, true);
 							} else {
 								int64_t int_val = std::stoll(value);
 								// Convert to microseconds based on directive/modifier:

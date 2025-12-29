@@ -1,0 +1,103 @@
+# name: test/sql/directives/status_condition.test
+# description: Tests for status code conditional directives (%400,501{...} and %!200{...})
+# group: [directives]
+
+require httpd_log
+
+# =============================================================================
+# Test Group 1: Format string parsing with status conditions
+# =============================================================================
+
+# Test 1: %400,501{User-Agent}i parses correctly
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/status_condition.log',
+        format_str='%h %t %>s %400,501{User-Agent}i %{Referer}i'
+    )
+)
+WHERE column_name = 'user_agent';
+----
+1
+
+# Test 2: %!200,304{Referer}i parses correctly
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/status_condition.log',
+        format_str='%h %t %>s %{User-Agent}i %!200,304{Referer}i'
+    )
+)
+WHERE column_name = 'referer';
+----
+1
+
+# Test 3: Status condition with single code
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/status_condition.log',
+        format_str='%h %t %>s %200{User-Agent}i'
+    )
+)
+WHERE column_name = 'user_agent';
+----
+1
+
+# Test 4: Negated status condition
+query I
+SELECT COUNT(*)
+FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/status_condition.log',
+        format_str='%h %t %>s %!500{User-Agent}i'
+    )
+)
+WHERE column_name = 'user_agent';
+----
+1
+
+# =============================================================================
+# Test Group 2: Data extraction with "-" values
+# =============================================================================
+
+# Test 5: Extract values where some are "-" (becomes NULL)
+query TT
+SELECT user_agent, referer
+FROM read_httpd_log(
+    'test/data/directives/status_condition.log',
+    format_str='%h %t %>s %{User-Agent}i %{Referer}i'
+)
+ORDER BY client_ip;
+----
+Mozilla/5.0	http://example.com/
+NULL	NULL
+curl/7.68.0	NULL
+
+# Test 6: Count NULL values
+query I
+SELECT COUNT(*)
+FROM read_httpd_log(
+    'test/data/directives/status_condition.log',
+    format_str='%h %t %>s %{User-Agent}i %{Referer}i'
+)
+WHERE referer IS NULL;
+----
+2
+
+# Test 7: Filter non-NULL values
+query T
+SELECT user_agent
+FROM read_httpd_log(
+    'test/data/directives/status_condition.log',
+    format_str='%h %t %>s %{User-Agent}i %{Referer}i'
+)
+WHERE user_agent IS NOT NULL
+ORDER BY user_agent;
+----
+Mozilla/5.0
+curl/7.68.0
+
