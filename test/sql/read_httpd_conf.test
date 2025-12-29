@@ -1,0 +1,124 @@
+# name: test/sql/read_httpd_conf.test
+# description: Tests for read_httpd_conf function
+# group: [httpd_conf]
+
+require httpd_log
+
+# Test 1: Basic function call - count all format definitions
+query I
+SELECT COUNT(*) FROM read_httpd_conf('test/data/conf/httpd.conf');
+----
+7
+
+# Test 2: Filter by log_type - access logs
+query I
+SELECT COUNT(*) FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE log_type = 'access';
+----
+6
+
+# Test 3: Filter by log_type - error logs (only ErrorLogFormat)
+query I
+SELECT COUNT(*) FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE log_type = 'error';
+----
+1
+
+# Test 4: Get LogFormat definitions with nicknames (format_type = 'named')
+query TTT
+SELECT format_type, nickname, format_string
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE format_type = 'named'
+ORDER BY line_number
+LIMIT 2;
+----
+named	common	%h %l %u %t "%r" %>s %b
+named	combined	%h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i"
+
+# Test 5: Get LogFormat without nickname (format_type = 'default')
+query I
+SELECT COUNT(*)
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE format_type = 'default' AND log_type = 'access';
+----
+1
+
+# Test 6: Get CustomLog with inline format (format_type = 'inline')
+query I
+SELECT COUNT(*)
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE format_type = 'inline';
+----
+1
+
+# Test 7: ErrorLogFormat entry
+query TT
+SELECT format_type, format_string
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE log_type = 'error' AND format_string IS NOT NULL;
+----
+default	[%t] [%l] [pid %P] %F: %E: %M
+
+# Test 8: Line continuation test
+query TT
+SELECT nickname, format_string
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE nickname = 'continuation_test';
+----
+continuation_test	%h %l %u %t  "%r" %>s %b
+
+# Test 9: Same nickname appears multiple times (different scopes - only LogFormat definitions)
+query I
+SELECT COUNT(*)
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE nickname = 'common';
+----
+2
+
+# Test 10: config_file column contains the file path
+query I
+SELECT COUNT(*)
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE config_file = 'test/data/conf/httpd.conf';
+----
+7
+
+# Test 11: line_number is positive
+query I
+SELECT COUNT(*)
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE line_number > 0;
+----
+7
+
+# Test 12: Column types verification
+query TTTTTT
+SELECT
+    typeof(log_type),
+    typeof(format_type),
+    typeof(nickname),
+    typeof(format_string),
+    typeof(config_file),
+    typeof(line_number)
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+LIMIT 1;
+----
+VARCHAR	VARCHAR	VARCHAR	VARCHAR	VARCHAR	INTEGER
+
+# Test 13: All format_type values (no 'reference' - those are excluded)
+query T
+SELECT DISTINCT format_type
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+ORDER BY format_type;
+----
+default
+inline
+named
+
+# Test 14: All entries have format_string (format definitions only)
+query I
+SELECT COUNT(*)
+FROM read_httpd_conf('test/data/conf/httpd.conf')
+WHERE format_string IS NOT NULL;
+----
+7
