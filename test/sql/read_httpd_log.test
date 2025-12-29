@@ -216,7 +216,7 @@ LIMIT 1;
 192.168.1.1	NULL	frank	2000-10-10 20:55:36	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log
 
 # Test 23: Verify column names with raw=true (should be 14 columns)
-query TTTTTTTTTTTTIT
+query TTTTTTTTTTTITT
 SELECT
     client_ip,
     ident,
@@ -235,13 +235,13 @@ SELECT
 FROM read_httpd_log('test/data/common/sample.log', raw=true)
 LIMIT 1;
 ----
-192.168.1.1	NULL	frank	2000-10-10 20:55:36	10/Oct/2000:13:55:36 -0700	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log	0	NULL
+192.168.1.1	NULL	frank	2000-10-10 20:55:36	10/Oct/2000:13:55:36 -0700	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log	0	192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326
 
-# Test 24: Verify raw_line is NULL for successful parses with raw=true
+# Test 24: Verify raw_line is populated for successful parses with raw=true
 query I
 SELECT COUNT(*)
 FROM read_httpd_log('test/data/common/sample.log', raw=true)
-WHERE parse_error = false AND raw_line IS NULL;
+WHERE parse_error = false AND raw_line IS NOT NULL;
 ----
 6
 

@@ -575,13 +575,9 @@ void HttpdLogFileReader::WriteColumnValue(Vector &vec, idx_t row_idx, idx_t sche
 		}
 		current_schema_col++;
 
-		// raw_line
+		// raw_line (always populated in raw mode)
 		if (current_schema_col == schema_col_id) {
-			if (parse_error) {
-				FlatVector::GetData<string_t>(vec)[row_idx] = StringVector::AddString(vec, line);
-			} else {
-				FlatVector::SetNull(vec, row_idx, true);
-			}
+			FlatVector::GetData<string_t>(vec)[row_idx] = StringVector::AddString(vec, line);
 			return;
 		}
 	}

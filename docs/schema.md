@@ -71,7 +71,7 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `handler` | VARCHAR | `%R` | ✓ | ✓ | Response handler name |
 | `log_file` | VARCHAR | (auto) | ✓ | ✓ | Source log file path (always included) |
 | `parse_error` | BOOLEAN | (auto) | ✗ | ✓ | Whether parsing failed |
-| `raw_line` | VARCHAR | (auto) | ✗ | ✓ | Original log line (only for parse errors) |
+| `raw_line` | VARCHAR | (auto) | ✗ | ✓ | Original log line |
 
 **Notes:**
 - When `%r` is used, it is parsed into `method`, `path`, `query_string`, and `protocol` columns

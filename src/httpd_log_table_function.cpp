@@ -835,13 +835,9 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			FlatVector::GetData<bool>(output.data[col_idx])[output_idx] = parse_error;
 			col_idx++;
 
-			// raw_line (only set if parse_error is true)
-			if (parse_error) {
-				FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-				    StringVector::AddString(output.data[col_idx], line);
-			} else {
-				FlatVector::SetNull(output.data[col_idx], output_idx, true);
-			}
+			// raw_line (always populated in raw mode)
+			FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+			    StringVector::AddString(output.data[col_idx], line);
 		}
 
 		output_idx++;
