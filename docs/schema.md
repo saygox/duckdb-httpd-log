@@ -79,6 +79,72 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 - Header names are converted to lowercase with hyphens replaced by underscores (e.g., `User-Agent` → `user_agent`)
 - Same directive twice produces `column`, `column_2`
 
+## Original/Final Request Modifiers (`<` and `>`)
+
+Apache supports `<` and `>` modifiers for directives that can refer to original or final (redirected) requests:
+
+| Modifier | Meaning | Example |
+|----------|---------|---------|
+| `%>X` | Final request value | `%>s` (final status) |
+| `%<X` | Original request value | `%<s` (original status) |
+| `%X` | Default (depends on directive) | `%s` (original status) |
+
+Affected directives: `%s`, `%U`, `%T`, `%D`, `%r`
+
+**Single usage:** No suffix is added regardless of modifier
+```sql
+-- All produce 'status' column
+format_str='... %s ...'    -- status
+format_str='... %>s ...'   -- status
+format_str='... %<s ...'   -- status
+```
+
+**Collision:** `>` (final) gets base name, others get `_original` suffix
+```sql
+format_str='... %s %>s ...'   -- status_original, status
+format_str='... %<s %>s ...'  -- status_original, status
+```
+
+## Column Name Collision Resolution
+
+When multiple directives produce the same column name, collisions are resolved by priority. The **lowest priority wins** the base name; others get suffixes.
+
+### Priority Table
+
+| Priority | Directive | Suffix | Description |
+|----------|-----------|--------|-------------|
+| 0 | `%>s`, `%>U`, `%>D`, `%>T`, `%>r` | (none) | Final request variants |
+| 1 | `%s`, `%<s`, `%U`, `%<U`, `%D`, `%<D`, `%T`, `%<T`, `%r`, `%<r`, `%i` | `_original` / `_in` | Original request / request headers |
+| 2 | `%o` | `_out` | Response headers |
+| 3 | `%C` | `_cookie` | Cookies |
+| 4 | `%e` | `_env` | Environment variables |
+| 5 | `%n` | `_note` | Notes |
+| 6 | `%^ti` | `_trail_in` | Request trailers |
+| 7 | `%^to` | `_trail_out` | Response trailers |
+
+### Examples
+
+```sql
+-- %{foo}i (priority 1) vs %{foo}o (priority 2)
+format_str='%{foo}i %{foo}o'  -- foo, foo_out
+
+-- %{foo}C (priority 3) vs %{foo}e (priority 4)
+format_str='%{foo}C %{foo}e'  -- foo, foo_env
+
+-- %U (priority 1) vs %{path}C (priority 3)
+format_str='%U %{path}C'      -- path, path_cookie
+
+-- %{X}i vs %{X}o vs %{X}C (priorities 1, 2, 3)
+format_str='%{X}i %{X}o %{X}C'  -- x, x_out, x_cookie
+```
+
+### Duplicate Handling
+
+When the same directive appears multiple times, duplicates are numbered:
+```sql
+format_str='%{X}i %{X}i %{X}i'  -- x, x_2, x_3
+```
+
 ## Timestamp Formats (`%{format}t`)
 
 The `%{format}t` directive supports multiple timestamp formats. When multiple timestamp-related directives are used together, they are combined into a single `timestamp` column.

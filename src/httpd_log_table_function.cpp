@@ -585,7 +585,7 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						    StringVector::AddString(output.data[col_idx], "");
 						col_idx++;
 					}
-				} else if (field.directive == "%r") {
+				} else if (field.directive == "%r" || field.directive == "%>r" || field.directive == "%<r") {
 					value_idx++; // Advance past the request value
 					// method, path, query_string, protocol columns (respecting skip flags)
 					if (!field.skip_method) {
@@ -667,7 +667,7 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						}
 					}
 					// If group_id >= 0 but already processed, skip (handled by should_skip)
-				} else if (field.directive == "%r") {
+				} else if (field.directive == "%r" || field.directive == "%>r" || field.directive == "%<r") {
 					const string &value = parsed_values[value_idx];
 					value_idx++;
 					// Parse request line into method, path, query_string, protocol

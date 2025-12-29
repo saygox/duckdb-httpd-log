@@ -35,11 +35,11 @@ WHERE column_name = 'content_length';
 1
 
 # ============================================================================
-# Test 3: Both %{Content-Length}i and %{Content-Length}o - suffixes applied
+# Test 3: Both %{Content-Length}i and %{Content-Length}o - %i gets base name, %o gets suffix
 # ============================================================================
 query II
 SELECT
-    COUNT(*) FILTER (WHERE column_name = 'content_length_in') as has_in,
+    COUNT(*) FILTER (WHERE column_name = 'content_length') as has_base,
     COUNT(*) FILTER (WHERE column_name = 'content_length_out') as has_out
 FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
@@ -54,7 +54,7 @@ FROM (
 # Test 4: Verify data is correctly parsed with collision resolution
 # ============================================================================
 query III
-SELECT content_length_in, content_length_out, status
+SELECT content_length, content_length_out, status
 FROM read_httpd_log(
     'test/data/directives/header_collision.log',
     format_str='%h %l %u %t "%r" %>s %{Content-Length}i %{Content-Length}o'
@@ -84,12 +84,13 @@ FROM (
 
 # ============================================================================
 # Test 6: Mixed collision - same header in both %i and %o, plus duplicates
+# First %i gets base name, %o gets suffix, second %i gets _in suffix (duplicate)
 # ============================================================================
 query III
 SELECT
-    COUNT(*) FILTER (WHERE column_name = 'x_mixed_in') as in_col,
+    COUNT(*) FILTER (WHERE column_name = 'x_mixed') as base_col,
     COUNT(*) FILTER (WHERE column_name = 'x_mixed_out') as out_col,
-    COUNT(*) FILTER (WHERE column_name = 'x_mixed_in_2') as in_2_col
+    COUNT(*) FILTER (WHERE column_name = 'x_mixed_in') as in_col
 FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
         'test/data/common/sample.log',

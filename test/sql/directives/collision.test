@@ -9,7 +9,7 @@ require httpd_log
 # All 7 modifier-based directives (%i, %o, %C, %e, %n, %^ti, %^to) with same name
 # =============================================================================
 
-# Test 1: Two directives with same VARNAME - %{foo}i and %{foo}o get _in and _out
+# Test 1: %{foo}i (priority 1) gets base name, %{foo}o (priority 2) gets suffix
 query I
 SELECT COUNT(*)
 FROM (
@@ -18,11 +18,11 @@ FROM (
         format_str='%h %{foo}i %{foo}o'
     )
 )
-WHERE column_name IN ('foo_in', 'foo_out');
+WHERE column_name IN ('foo', 'foo_out');
 ----
 2
 
-# Test 2: %{foo}C and %{foo}e get _cookie and _env suffixes
+# Test 2: %{foo}C (priority 3) gets base name, %{foo}e (priority 4) gets suffix
 query I
 SELECT COUNT(*)
 FROM (
@@ -31,11 +31,11 @@ FROM (
         format_str='%h %{foo}C %{foo}e'
     )
 )
-WHERE column_name IN ('foo_cookie', 'foo_env');
+WHERE column_name IN ('foo', 'foo_env');
 ----
 2
 
-# Test 3: %{foo}^ti and %{foo}^to get _trail_in and _trail_out suffixes
+# Test 3: %{foo}^ti (priority 6) gets base name, %{foo}^to (priority 7) gets suffix
 query I
 SELECT COUNT(*)
 FROM (
@@ -44,11 +44,11 @@ FROM (
         format_str='%h %{foo}^ti %{foo}^to'
     )
 )
-WHERE column_name IN ('foo_trail_in', 'foo_trail_out');
+WHERE column_name IN ('foo', 'foo_trail_out');
 ----
 2
 
-# Test 4: Three-way collision - %{foo}i, %{foo}C, %{foo}n all get suffixes
+# Test 4: Three-way collision - %{foo}i (lowest priority) gets base, others get suffixes
 query I
 SELECT COUNT(*)
 FROM (
@@ -57,11 +57,12 @@ FROM (
         format_str='%h %{foo}i %{foo}C %{foo}n'
     )
 )
-WHERE column_name IN ('foo_in', 'foo_cookie', 'foo_note');
+WHERE column_name IN ('foo', 'foo_cookie', 'foo_note');
 ----
 3
 
 # Test 5: All 7 modifier-based directives with same VARNAME
+# %{x}i (priority 1) gets base name 'x', others get suffixes
 query I
 SELECT COUNT(*)
 FROM (
@@ -70,11 +71,11 @@ FROM (
         format_str='%h %{x}C %{x}e %{x}n %{x}^ti %{x}^to %{x}i %{x}o'
     )
 )
-WHERE column_name LIKE 'x_%';
+WHERE column_name LIKE 'x%';
 ----
 7
 
-# Test 6: Verify all 7 column names are correctly suffixed
+# Test 6: Verify all 7 column names - %{x}i gets base name, others get suffixes
 query T
 SELECT column_name
 FROM (
@@ -83,12 +84,12 @@ FROM (
         format_str='%h %{x}C %{x}e %{x}n %{x}^ti %{x}^to %{x}i %{x}o'
     )
 )
-WHERE column_name LIKE 'x_%'
+WHERE column_name LIKE 'x%'
 ORDER BY column_name;
 ----
+x
 x_cookie
 x_env
-x_in
 x_note
 x_out
 x_trail_in
@@ -226,7 +227,7 @@ bar_3
 # Test Group 4: Hyphen to underscore conversion in VARNAME
 # =============================================================================
 
-# Test 15: Hyphenated VARNAME collision - %{X-Custom}i and %{X-Custom}o
+# Test 15: Hyphenated VARNAME collision - %{X-Custom}i gets base, %{X-Custom}o gets suffix
 query T
 SELECT column_name
 FROM (
@@ -238,10 +239,10 @@ FROM (
 WHERE column_name LIKE 'x_custom%'
 ORDER BY column_name;
 ----
-x_custom_in
+x_custom
 x_custom_out
 
-# Test 16: Hyphenated VARNAME with cookie - %{my-session}C vs %{my-session}e
+# Test 16: Hyphenated VARNAME with cookie - %{my-session}C gets base, %{my-session}e gets suffix
 query T
 SELECT column_name
 FROM (
@@ -253,14 +254,14 @@ FROM (
 WHERE column_name LIKE 'my_session%'
 ORDER BY column_name;
 ----
-my_session_cookie
+my_session
 my_session_env
 
 # =============================================================================
 # Test Group 5: Case insensitivity (VARNAME normalized to lowercase)
 # =============================================================================
 
-# Test 17: Uppercase VARNAME collision - %{FOO}i and %{foo}o -> same base name
+# Test 17: Uppercase VARNAME collision - %{FOO}i gets base, %{foo}o gets suffix
 query T
 SELECT column_name
 FROM (
@@ -272,10 +273,10 @@ FROM (
 WHERE column_name LIKE 'foo%'
 ORDER BY column_name;
 ----
-foo_in
+foo
 foo_out
 
-# Test 18: Mixed case collision - %{Content-Type}i and %{content-type}C
+# Test 18: Mixed case collision - %{Content-Type}i gets base name, %{content-type}C gets suffix
 query T
 SELECT column_name
 FROM (
@@ -287,8 +288,8 @@ FROM (
 WHERE column_name LIKE 'content_type%'
 ORDER BY column_name;
 ----
+content_type
 content_type_cookie
-content_type_in
 
 # =============================================================================
 # Test Group 6: Complex mixed collisions

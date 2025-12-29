@@ -19,9 +19,17 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%l", "ident", LogicalTypeId::VARCHAR},
     {"%u", "auth_user", LogicalTypeId::VARCHAR},
     {"%t", "timestamp", LogicalTypeId::TIMESTAMP},
-    {"%r", "request", LogicalTypeId::VARCHAR},
+    // Request line directives (original/final collision pair)
+    {"%>r", "request", LogicalTypeId::VARCHAR, "", 0},           // Final request gets base name
+    {"%r", "request", LogicalTypeId::VARCHAR, "_original", 1},   // Original request (default) gets suffix
+    {"%<r", "request", LogicalTypeId::VARCHAR, "_original", 1},  // Explicit original gets suffix
+
     {"%m", "method", LogicalTypeId::VARCHAR},
-    {"%U", "path", LogicalTypeId::VARCHAR},
+
+    // URL path directives (original/final collision pair)
+    {"%>U", "path", LogicalTypeId::VARCHAR, "", 0},              // Final path gets base name
+    {"%U", "path", LogicalTypeId::VARCHAR, "_original", 1},      // Original path (default) gets suffix
+    {"%<U", "path", LogicalTypeId::VARCHAR, "_original", 1},     // Explicit original gets suffix
     {"%q", "query_string", LogicalTypeId::VARCHAR},
     {"%H", "protocol", LogicalTypeId::VARCHAR},
     {"%p", "server_port", LogicalTypeId::INTEGER},
@@ -32,12 +40,18 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%P", "process_id", LogicalTypeId::INTEGER},
     // Duration directives - collision handled specially by GetDurationPriority()
     // When multiple duration directives exist, only highest precision is kept
-    {"%D", "duration", LogicalTypeId::INTERVAL}, // Microseconds
-    {"%T", "duration", LogicalTypeId::INTERVAL}, // Seconds (or with modifier: ms, us, s)
+    // Also supports original/final modifiers
+    {"%>D", "duration", LogicalTypeId::INTERVAL, "", 0},            // Final duration (us) gets base name
+    {"%D", "duration", LogicalTypeId::INTERVAL, "_original", 1},    // Original duration (us, default) gets suffix
+    {"%<D", "duration", LogicalTypeId::INTERVAL, "_original", 1},   // Explicit original duration (us)
+    {"%>T", "duration", LogicalTypeId::INTERVAL, "", 0},            // Final duration (s) gets base name
+    {"%T", "duration", LogicalTypeId::INTERVAL, "_original", 1},    // Original duration (s, default) gets suffix
+    {"%<T", "duration", LogicalTypeId::INTERVAL, "_original", 1},   // Explicit original duration (s)
 
-    // Status code directives (collision pair)
+    // Status code directives (original/final collision pair)
     {"%>s", "status", LogicalTypeId::INTEGER, "", 0},         // Final status gets base name
-    {"%s", "status", LogicalTypeId::INTEGER, "_original", 1}, // Original status gets suffix
+    {"%s", "status", LogicalTypeId::INTEGER, "_original", 1}, // Original status (default) gets suffix
+    {"%<s", "status", LogicalTypeId::INTEGER, "_original", 1}, // Explicit original status gets suffix
 
     // Server name directives (collision pair)
     {"%v", "server_name", LogicalTypeId::VARCHAR, "", 0},      // Canonical name gets base name
@@ -57,18 +71,18 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%L", "request_log_id", LogicalTypeId::VARCHAR},
     {"%R", "handler", LogicalTypeId::VARCHAR},
 
-    // Header directives (dynamic column name, collision with each other)
-    {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers
-    {"%o", "", LogicalTypeId::VARCHAR, "_out", 1}, // Response headers
+    // Header directives (dynamic column name, unique priorities for collision resolution)
+    {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers (highest among dynamic)
+    {"%o", "", LogicalTypeId::VARCHAR, "_out", 2}, // Response headers
 
     // Cookie, Environment, Note directives (dynamic column name)
-    {"%C", "", LogicalTypeId::VARCHAR, "_cookie", 2},
-    {"%e", "", LogicalTypeId::VARCHAR, "_env", 2},
-    {"%n", "", LogicalTypeId::VARCHAR, "_note", 2},
+    {"%C", "", LogicalTypeId::VARCHAR, "_cookie", 3},
+    {"%e", "", LogicalTypeId::VARCHAR, "_env", 4},
+    {"%n", "", LogicalTypeId::VARCHAR, "_note", 5},
 
     // Trailer directives (dynamic column name)
-    {"%^ti", "", LogicalTypeId::VARCHAR, "_trail_in", 2},
-    {"%^to", "", LogicalTypeId::VARCHAR, "_trail_out", 2},
+    {"%^ti", "", LogicalTypeId::VARCHAR, "_trail_in", 6},
+    {"%^to", "", LogicalTypeId::VARCHAR, "_trail_out", 7},
 };
 
 // Typed header rules - maps header names to specific types with direction constraints
@@ -177,12 +191,15 @@ static string StrftimeToRegex(const string &format) {
 
 // Get priority for duration directives (lower = higher priority)
 // Returns -1 for non-duration directives
-// Priority order: %D (0) > %{us}T (1) > %{ms}T (2) > %T (3) > %{s}T (4)
+// Priority order: %D variants (0-1) > %{us}T (2) > %{ms}T (3) > %T (4) > %{s}T (5)
+// Final (>) variants get same precision priority but win in collision resolution via suffix
 static int GetDurationPriority(const string &directive, const string &modifier) {
-	if (directive == "%D") {
-		return 0; // microseconds (highest priority)
+	// Handle %D variants (microseconds - highest precision)
+	if (directive == "%D" || directive == "%>D" || directive == "%<D") {
+		return 0;
 	}
-	if (directive == "%T") {
+	// Handle %T variants
+	if (directive == "%T" || directive == "%>T" || directive == "%<T") {
 		if (modifier == "us") {
 			return 1; // microseconds
 		}
@@ -268,9 +285,16 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 		return "peer_host";
 	}
 
-	// Handle %{UNIT}T - time taken with unit (ms, us, s)
+	// Handle %{UNIT}T variants - time taken with unit (ms, us, s)
 	// All variants produce "duration" column name (same as %D and %T)
-	if (directive == "%T" && (modifier == "ms" || modifier == "us" || modifier == "s")) {
+	// For < > modifiers, the directive definition handles the suffix
+	if ((directive == "%T" || directive == "%>T" || directive == "%<T") &&
+	    (modifier == "ms" || modifier == "us" || modifier == "s")) {
+		// Look up directive definition for proper suffix handling
+		const DirectiveDefinition *def = GetDirectiveDefinition(directive);
+		if (def) {
+			return def->column_name;
+		}
 		return "duration";
 	}
 
@@ -330,9 +354,10 @@ LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const str
 		return LogicalType::VARCHAR;
 	}
 
-	// Handle %{UNIT}T - time taken with unit (ms, us, s)
+	// Handle %{UNIT}T variants - time taken with unit (ms, us, s)
 	// All variants return INTERVAL type
-	if (directive == "%T" && (modifier == "ms" || modifier == "us" || modifier == "s")) {
+	if ((directive == "%T" || directive == "%>T" || directive == "%<T") &&
+	    (modifier == "ms" || modifier == "us" || modifier == "s")) {
 		return LogicalType::INTERVAL;
 	}
 
@@ -426,10 +451,10 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 				// For status conditions like %200s, directive_start points past the condition
 				size_t dir_start = (directive_start == pos + 1) ? pos : directive_start;
 
-				// Check for %>s or other multi-char directives
+				// Check for %<X or %>X (original/final modifiers)
 				if (dir_start + 1 < format_str.length() && format_str[dir_start] == '%' &&
-				    format_str[dir_start + 1] == '>') {
-					directive = format_str.substr(dir_start, 3);
+				    (format_str[dir_start + 1] == '>' || format_str[dir_start + 1] == '<')) {
+					directive = format_str.substr(dir_start, 3); // e.g., %>s, %<s, %>U, %<U
 					pos = dir_start + 3;
 				} else if (directive_start > pos + 1) {
 					// Status condition present, directive starts at directive_start
@@ -648,9 +673,9 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 				return_types.push_back(LogicalType::VARCHAR);
 			}
 		}
-		// Special handling for %r (request) - decompose into method, path, query_string, protocol
+		// Special handling for %r variants (request) - decompose into method, path, query_string, protocol
 		// Skip sub-columns that are overridden by individual directives (%m, %U, %q, %H)
-		else if (field.directive == "%r") {
+		else if (field.directive == "%r" || field.directive == "%>r" || field.directive == "%<r") {
 			if (!field.skip_method) {
 				names.push_back("method");
 				return_types.push_back(LogicalType::VARCHAR);
@@ -802,20 +827,30 @@ vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const Pars
 	return result;
 }
 
+// Helper to check if a directive is a request line variant (%r, %>r, %<r)
+static bool IsRequestLineDirective(const string &dir) {
+	return dir == "%r" || dir == "%>r" || dir == "%<r";
+}
+
+// Helper to check if a directive is a path variant (%U, %>U, %<U)
+static bool IsPathDirective(const string &dir) {
+	return dir == "%U" || dir == "%>U" || dir == "%<U";
+}
+
 void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_format) {
-	// Step 0: Handle %r vs individual directive collisions
-	// When %m, %U, %q, or %H are present alongside %r, skip the corresponding %r sub-column
+	// Step 0: Handle %r variants vs individual directive collisions
+	// When %m, %U variants, %q, or %H are present alongside %r variants, skip the corresponding sub-column
 	// Individual directives take priority over %r decomposition
 	bool has_m = false, has_U = false, has_q = false, has_H = false;
 	idx_t r_field_idx = DConstants::INVALID_INDEX;
 
 	for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
 		const string &dir = parsed_format.fields[i].directive;
-		if (dir == "%r") {
+		if (IsRequestLineDirective(dir)) {
 			r_field_idx = i;
 		} else if (dir == "%m") {
 			has_m = true;
-		} else if (dir == "%U") {
+		} else if (IsPathDirective(dir)) {
 			has_U = true;
 		} else if (dir == "%q") {
 			has_q = true;
@@ -824,7 +859,7 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		}
 	}
 
-	// If %r is present with individual directives, set skip flags
+	// If %r variant is present with individual directives, set skip flags
 	if (r_field_idx != DConstants::INVALID_INDEX) {
 		auto &r_field = parsed_format.fields[r_field_idx];
 		if (has_m) {
@@ -937,8 +972,8 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		}
 
 		// Special case: Duration directives - keep only highest precision, skip others
-		// This handles %D, %T, %{ms}T, %{us}T, %{s}T collisions
-		if (column_name == "duration") {
+		// This handles %D, %T, %{ms}T, %{us}T, %{s}T and their < > variants
+		if (column_name == "duration" || column_name == "duration_original") {
 			// Find field with lowest priority number (= highest precision)
 			idx_t best_idx = field_indices[0];
 			int best_priority =
@@ -1075,35 +1110,22 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		std::sort(fields_with_defs.begin(), fields_with_defs.end(),
 		          [](const FieldWithDef &a, const FieldWithDef &b) { return a.priority < b.priority; });
 
-		// Check if this is a header collision (only %i and/or %o involved)
-		bool has_i = by_directive.count("%i") > 0;
-		bool has_o = by_directive.count("%o") > 0;
-		bool is_pure_header_collision = by_directive.size() == 2 && has_i && has_o;
-
-		// For header collisions (%{X}i + %{X}o), both get suffixes
-		// For other collisions, use priority-based resolution
-		if (is_pure_header_collision) {
-			// Both header types present - apply suffixes to both
-			for (const auto &fwd : fields_with_defs) {
-				auto &field = parsed_format.fields[fwd.field_idx];
-				if (fwd.def) {
-					field.column_name = column_name + fwd.def->collision_suffix;
-				}
-			}
-		} else {
-			// Mixed collision or standard directive pairs
-			// Priority 0 gets base name (or its own suffix if defined)
-			// Others get their suffixes
-			for (const auto &fwd : fields_with_defs) {
-				auto &field = parsed_format.fields[fwd.field_idx];
-				if (fwd.def) {
-					if (fwd.def->collision_suffix.empty()) {
-						// Priority 0 with empty suffix keeps base name
-						field.column_name = column_name;
-					} else {
-						field.column_name = column_name + fwd.def->collision_suffix;
-					}
-				}
+		// Simple priority-based resolution
+		// Lowest priority keeps base name, others get their defined suffixes
+		// (All priorities are unique, so there's always a clear winner)
+		bool first = true;
+		for (const auto &fwd : fields_with_defs) {
+			auto &field = parsed_format.fields[fwd.field_idx];
+			if (first) {
+				// Lowest priority keeps base name
+				field.column_name = column_name;
+				first = false;
+			} else if (fwd.def && !fwd.def->collision_suffix.empty()) {
+				// Others get their defined suffix
+				field.column_name = column_name + fwd.def->collision_suffix;
+			} else {
+				// Fallback: append priority as suffix
+				field.column_name = column_name + "_" + std::to_string(fwd.priority);
 			}
 		}
 
