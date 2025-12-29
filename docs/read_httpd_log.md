@@ -1,19 +1,80 @@
-# Output Schema
+# read_httpd_log Function
 
-This document provides detailed information about the output schema for the `read_httpd_log` table function.
+The `read_httpd_log` function reads and parses Apache HTTP server log files.
 
 ## Overview
 
-The output schema varies based on two parameters:
-- **`format_type`**: Determines the log format (`'common'`, `'combined'`, or custom format string)
-- **`raw`**: Controls visibility of diagnostic columns (default: `false`)
+This function parses Apache access log files and returns them as a queryable table. It supports:
+
+- Common Log Format and Combined Log Format
+- Custom formats via Apache LogFormat syntax
+- Format lookup from httpd.conf files
+- Glob patterns for reading multiple files
+
+## Usage
+
+```sql
+-- Read with default common format
+SELECT * FROM read_httpd_log('access.log');
+
+-- Read with combined format
+SELECT * FROM read_httpd_log('access.log', format_type='combined');
+
+-- Read with custom format string
+SELECT * FROM read_httpd_log('access.log',
+    format_str='%h %l %u %t "%r" %>s %b %D');
+
+-- Read using format from httpd.conf
+SELECT * FROM read_httpd_log('access.log', conf='/etc/httpd/conf/httpd.conf');
+
+-- Read multiple files with glob pattern
+SELECT * FROM read_httpd_log('logs/*.log');
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | VARCHAR | File path or glob pattern (required) |
+| `format_type` | VARCHAR | `'common'` (default), `'combined'`, or nickname from conf |
+| `format_str` | VARCHAR | Custom Apache LogFormat string (overrides format_type) |
+| `conf` | VARCHAR | Path to httpd.conf for format lookup |
+| `raw` | BOOLEAN | Include diagnostic columns (default: false) |
+
+## Output Schema
 
 ### Schema Variations
 
-- **Common format** with `raw=false` (default): **11 columns**
-- **Common format** with `raw=true`: **13 columns** (adds 2 diagnostic columns)
-- **Combined format** with `raw=false`: **13 columns**
-- **Combined format** with `raw=true`: **15 columns** (adds 2 diagnostic columns)
+| Format | Columns (raw=false) | Columns (raw=true) |
+|--------|---------------------|-------------------|
+| Common | 11 | 13 |
+| Combined | 13 | 15 |
+| Custom | Varies | +2 diagnostic columns |
+
+### Common Format
+
+Apache's standard "Common Log Format":
+```
+LogFormat "%h %l %u %t \"%r\" %>s %b" common
+```
+
+**Columns:** `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `log_file`
+
+### Combined Format
+
+Apache's "Combined Log Format":
+```
+LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined
+```
+
+**Columns:** All Common format columns plus `referer`, `user_agent`
+
+### Diagnostic Columns (raw=true only)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `parse_error` | BOOLEAN | Whether parsing failed |
+| `raw_line` | VARCHAR | Original log line |
 
 ## Supported Directives
 
@@ -78,7 +139,9 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 - Header names are converted to lowercase with hyphens replaced by underscores (e.g., `User-Agent` → `user_agent`)
 - Same directive twice produces `column`, `column_2`
 
-## Original/Final Request Modifiers (`<` and `>`)
+## Advanced Topics
+
+### Original/Final Request Modifiers
 
 Apache supports `<` and `>` modifiers for directives that can refer to original or final (redirected) requests:
 
@@ -88,166 +151,90 @@ Apache supports `<` and `>` modifiers for directives that can refer to original 
 | `%<X` | Original request value | `%<s` (original status) |
 | `%X` | Default (depends on directive) | `%s` (original status) |
 
-Affected directives: `%s`, `%U`, `%T`, `%D`, `%r`
-
-**Single usage:** No suffix is added regardless of modifier
-```sql
--- All produce 'status' column
-format_str='... %s ...'    -- status
-format_str='... %>s ...'   -- status
-format_str='... %<s ...'   -- status
-```
-
-**Collision:** `>` (final) gets base name, others get `_original` suffix
+When both are present, `>` (final) gets the base name and others get `_original` suffix:
 ```sql
 format_str='... %s %>s ...'   -- status_original, status
-format_str='... %<s %>s ...'  -- status_original, status
 ```
 
-## Column Name Collision Resolution
+### Column Name Collision Resolution
 
-When multiple directives produce the same column name, collisions are resolved by priority. The **lowest priority wins** the base name; others get suffixes.
+When multiple directives produce the same column name, collisions are resolved by priority:
 
-### Priority Table
+| Priority | Directive | Suffix |
+|----------|-----------|--------|
+| 0 | `%>s`, `%>U`, etc. | (none) |
+| 1 | `%s`, `%i` | `_original` / `_in` |
+| 2 | `%o` | `_out` |
+| 3 | `%C` | `_cookie` |
+| 4 | `%e` | `_env` |
+| 5 | `%n` | `_note` |
 
-| Priority | Directive | Suffix | Description |
-|----------|-----------|--------|-------------|
-| 0 | `%>s`, `%>U`, `%>D`, `%>T`, `%>r` | (none) | Final request variants |
-| 1 | `%s`, `%<s`, `%U`, `%<U`, `%D`, `%<D`, `%T`, `%<T`, `%r`, `%<r`, `%i` | `_original` / `_in` | Original request / request headers |
-| 2 | `%o` | `_out` | Response headers |
-| 3 | `%C` | `_cookie` | Cookies |
-| 4 | `%e` | `_env` | Environment variables |
-| 5 | `%n` | `_note` | Notes |
-| 6 | `%^ti` | `_trail_in` | Request trailers |
-| 7 | `%^to` | `_trail_out` | Response trailers |
-
-### Examples
-
+Example:
 ```sql
--- %{foo}i (priority 1) vs %{foo}o (priority 2)
 format_str='%{foo}i %{foo}o'  -- foo, foo_out
-
--- %{foo}C (priority 3) vs %{foo}e (priority 4)
-format_str='%{foo}C %{foo}e'  -- foo, foo_env
-
--- %U (priority 1) vs %{path}C (priority 3)
-format_str='%U %{path}C'      -- path, path_cookie
-
--- %{X}i vs %{X}o vs %{X}C (priorities 1, 2, 3)
-format_str='%{X}i %{X}o %{X}C'  -- x, x_out, x_cookie
 ```
-
-### Duplicate Handling
 
 When the same directive appears multiple times, duplicates are numbered:
 ```sql
 format_str='%{X}i %{X}i %{X}i'  -- x, x_2, x_3
 ```
 
-## Timestamp Formats (`%{format}t`)
+### Timestamp Formats
 
-The `%{format}t` directive supports multiple timestamp formats. When multiple timestamp-related directives are used together, they are combined into a single `timestamp` column.
-
-### Supported Format Tokens
+The `%{format}t` directive supports multiple timestamp formats:
 
 | Format | Description | Example Value |
 |--------|-------------|---------------|
-| `%t` | Standard Apache format with brackets | `[10/Oct/2000:13:55:36 -0700]` |
+| `%t` | Standard Apache format | `[10/Oct/2000:13:55:36 -0700]` |
 | `%{sec}t` | Seconds since Unix epoch | `1609459200` |
 | `%{msec}t` | Milliseconds since Unix epoch | `1609459200123` |
 | `%{usec}t` | Microseconds since Unix epoch | `1609459200123456` |
-| `%{msec_frac}t` | Millisecond fraction (000-999) | `123` |
-| `%{usec_frac}t` | Microsecond fraction (000000-999999) | `123456` |
-| `%{strftime}t` | Custom strftime format (e.g., `%{%Y-%m-%d %H:%M:%S}t`) | `2021-01-01 13:55:36` |
+| `%{msec_frac}t` | Millisecond fraction | `123` |
+| `%{usec_frac}t` | Microsecond fraction | `123456` |
+| `%{strftime}t` | Custom strftime format | `2021-01-01 13:55:36` |
 
-### Strftime Format Specifiers
+Multiple timestamp directives are automatically combined into a single `timestamp` column. All timestamps are converted to UTC.
 
-Common strftime specifiers for `%{strftime}t`:
+## Examples
 
-| Specifier | Description | Example |
-|-----------|-------------|---------|
-| `%Y` | 4-digit year | `2021` |
-| `%m` | Month (01-12) | `01` |
-| `%d` | Day (01-31) | `15` |
-| `%b` | Abbreviated month name | `Jan` |
-| `%H` | Hour (00-23) | `13` |
-| `%M` | Minute (00-59) | `55` |
-| `%S` | Second (00-59) | `36` |
-| `%T` | Time (%H:%M:%S) | `13:55:36` |
-| `%z` | UTC offset | `-0700` |
-
-### Combining Multiple Timestamp Directives
-
-Multiple `%t`/`%{format}t` directives in a format string are automatically combined into a single timestamp:
+### Count Requests by Status Code
 
 ```sql
--- Epoch seconds
-SELECT * FROM read_httpd_log(
-    'access.log',
-    format_str='%h %{sec}t'
-);
-
--- Milliseconds with fractional component
-SELECT * FROM read_httpd_log(
-    'access.log',
-    format_str='%h %l %u %t %{usec_frac}t'
-);
--- Combines standard %t timestamp with microsecond fraction
-
--- Custom strftime format with timezone
-SELECT * FROM read_httpd_log(
-    'access.log',
-    format_str='%h %{%d/%b/%Y}t %{%T}t.%{msec_frac}t %{%z}t'
-);
--- Parses: "192.168.1.1 01/Jan/2021 13:55:36.123 -0700"
--- Result: 2021-01-01 20:55:36.123 (UTC)
+SELECT status, COUNT(*) as count
+FROM read_httpd_log('access.log')
+GROUP BY status
+ORDER BY count DESC;
 ```
 
-### Timezone Handling
-
-- All timestamps are converted to UTC in the output
-- When `%z` or `%{%z}t` is present, the timezone offset is applied
-- Standard `%t` format includes timezone in brackets and is automatically converted
-
-## Format-Specific Schemas
-
-### Common Format
-
-Apache's standard "Common Log Format":
-```
-LogFormat "%h %l %u %t \"%r\" %>s %b" common
-```
-
-**Columns (raw=false):** 11 columns
-- `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `log_file`
-
-**Columns (raw=true):** 13 columns (adds `parse_error`, `raw_line`)
-
-### Combined Format
-
-Apache's "Combined Log Format":
-```
-LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined
-```
-
-**Columns (raw=false):** 13 columns
-- All Common format columns plus `referer`, `user_agent`
-
-**Columns (raw=true):** 15 columns (adds `parse_error`, `raw_line`)
-
-### Custom Formats
-
-When using `format_str`, the schema is dynamically generated:
+### Find Large Responses
 
 ```sql
-SELECT * FROM read_httpd_log(
-    'access.log',
-    format_str='%h %t \"%r\" %>s %b %D'
-);
--- Returns: client_ip, timestamp, method, path, query_string, protocol, status, bytes, duration, log_file
+SELECT timestamp, client_ip, path, bytes
+FROM read_httpd_log('access.log')
+WHERE bytes > 1000000
+ORDER BY bytes DESC
+LIMIT 10;
+```
+
+### Analyze User Agents (Combined Format)
+
+```sql
+SELECT user_agent, COUNT(*) as requests
+FROM read_httpd_log('access.log', format_type='combined')
+GROUP BY user_agent
+ORDER BY requests DESC
+LIMIT 10;
+```
+
+### Debug Parse Errors
+
+```sql
+SELECT raw_line
+FROM read_httpd_log('access.log', raw=true)
+WHERE parse_error = true;
 ```
 
 ## See Also
 
-- [Main README](../README.md) - Quick start guide and usage examples
-- [Parameters Documentation](../README.md#parameters) - Details on all function parameters
+- [read_httpd_conf](read_httpd_conf.md) - Extract LogFormat definitions from httpd.conf
+- [Main README](../README.md) - Quick start guide
