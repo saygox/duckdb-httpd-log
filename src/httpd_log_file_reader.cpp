@@ -358,6 +358,9 @@ void HttpdLogFileReader::Scan(ClientContext &context, GlobalTableFunctionState &
 			break;
 		}
 
+		// Increment line number for every line read (including empty lines)
+		current_line_number++;
+
 		if (line.empty()) {
 			continue;
 		}
@@ -537,6 +540,13 @@ void HttpdLogFileReader::WriteColumnValue(Vector &vec, idx_t row_idx, idx_t sche
 	current_schema_col++;
 
 	if (raw_mode) {
+		// line_number
+		if (current_schema_col == schema_col_id) {
+			FlatVector::GetData<int64_t>(vec)[row_idx] = static_cast<int64_t>(current_line_number);
+			return;
+		}
+		current_schema_col++;
+
 		// parse_error
 		if (current_schema_col == schema_col_id) {
 			FlatVector::GetData<bool>(vec)[row_idx] = parse_error;

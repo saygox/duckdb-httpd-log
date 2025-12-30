@@ -160,6 +160,7 @@ Directives follow [Apache 2.4 mod_log_config](https://httpd.apache.org/docs/2.4/
 | `request_log_id` | VARCHAR | `%L` | Other | Request log ID from error log |
 | `handler` | VARCHAR | `%R` | Other | Response handler name |
 | `log_file` | VARCHAR | (auto) | Auto | Source log file path (always included) |
+| `line_number` | BIGINT | (auto) | Auto | Line number in file, 1-based (raw=true only) |
 | `parse_error` | BOOLEAN | (auto) | Auto | Whether parsing failed (raw=true only) |
 | `raw_line` | VARCHAR | (auto) | Auto | Original log line (raw=true only) |
 

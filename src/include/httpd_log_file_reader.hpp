@@ -25,6 +25,9 @@ public:
 	//! Buffered reader for the file
 	unique_ptr<HttpdLogBufferedReader> buffered_reader;
 
+	//! Current line number in the file (1-based)
+	idx_t current_line_number = 0;
+
 	//! Whether scan has been initialized (TryInitializeScan returned true)
 	bool scan_initialized = false;
 

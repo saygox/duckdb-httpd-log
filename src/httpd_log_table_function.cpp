@@ -499,6 +499,7 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 		if (!has_line) {
 			state.buffered_reader.reset();
 			state.current_file_idx++;
+			state.current_line_number = 0; // Reset line number for new file
 
 			// Profiling: increment files processed counter
 			state.files_processed++;
@@ -512,6 +513,9 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			state.buffered_reader = make_uniq<HttpdLogBufferedReader>(fs, state.current_file);
 			continue;
 		}
+
+		// Increment line number for every line read (including empty lines)
+		state.current_line_number++;
 
 		// Skip empty lines
 		if (line.empty()) {
@@ -829,8 +833,13 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 		    StringVector::AddString(output.data[col_idx], state.current_file);
 		col_idx++;
 
-		// parse_error and raw_line (only in raw mode)
+		// line_number, parse_error and raw_line (only in raw mode)
 		if (bind_data.raw_mode) {
+			// line_number
+			FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] =
+			    static_cast<int64_t>(state.current_line_number);
+			col_idx++;
+
 			// parse_error
 			FlatVector::GetData<bool>(output.data[col_idx])[output_idx] = parse_error;
 			col_idx++;

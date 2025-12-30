@@ -700,8 +700,11 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 	names.push_back("log_file");
 	return_types.push_back(LogicalType::VARCHAR);
 
-	// parse_error and raw_line are only included in raw mode
+	// line_number, parse_error and raw_line are only included in raw mode
 	if (include_raw_columns) {
+		names.push_back("line_number");
+		return_types.push_back(LogicalType::BIGINT);
+
 		names.push_back("parse_error");
 		return_types.push_back(LogicalType::BOOLEAN);
 
