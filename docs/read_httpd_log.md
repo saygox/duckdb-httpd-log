@@ -132,8 +132,8 @@ Directives follow [Apache 2.4 mod_log_config](https://httpd.apache.org/docs/2.4/
 | `timestamp` | TIMESTAMP | `%t` or `%{format}t` | Time | Parsed request timestamp (converted to UTC); `%{end:...}t` gets priority |
 | `timestamp_original` | TIMESTAMP | `%{begin:...}t` ( + `%{end:...}t` ) | Time | Original timestamp (when both begin: and end: present) |
 | `method` | VARCHAR | `%m` or `%r` | Request | HTTP method (GET, POST, etc.) |
-| `path` | VARCHAR | `%>U`, `%U`, or `%r` | Request | Request URL path (without query string) |
-| `path_original` | VARCHAR | `%U` ( + `%>U` ), `%<U` | Request | Original path (when both present) |
+| `path` | VARCHAR | `%>U`, `%>r`, `%U`, or `%r` | Request | Request URL path (without query string) |
+| `path_original` | VARCHAR | `%U` ( + `%>U` or `%>r` ), `%r` ( + `%>U` or `%>r` ), `%<U`, `%<r` | Request | Original path (when both present) |
 | `query_string` | VARCHAR | `%q` or `%r` | Request | Query string (including leading ?) |
 | `protocol` | VARCHAR | `%H` or `%r` | Request | HTTP protocol version |
 | `status` | INTEGER | `%>s`, `%s` | Response | HTTP status code |
