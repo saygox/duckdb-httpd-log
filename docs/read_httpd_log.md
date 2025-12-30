@@ -208,6 +208,17 @@ FROM read_httpd_log('access.log')
 GROUP BY status
 ORDER BY count DESC;
 ```
+```
+┌────────┬───────┐
+│ status │ count │
+│ int32  │ int64 │
+├────────┼───────┤
+│    200 │  1542 │
+│    304 │   287 │
+│    404 │    43 │
+│    500 │    12 │
+└────────┴───────┘
+```
 
 ### Find Large Responses
 
@@ -218,6 +229,16 @@ WHERE bytes > 1000000
 ORDER BY bytes DESC
 LIMIT 10;
 ```
+```
+┌─────────────────────┬─────────────┬─────────────────────┬──────────┐
+│      timestamp      │ client_host │        path         │  bytes   │
+│      timestamp      │   varchar   │       varchar       │  int64   │
+├─────────────────────┼─────────────┼─────────────────────┼──────────┤
+│ 2024-01-15 10:23:45 │ 192.168.1.5 │ /downloads/app.zip  │ 52428800 │
+│ 2024-01-15 11:45:12 │ 192.168.1.8 │ /videos/demo.mp4    │ 15728640 │
+│ 2024-01-15 09:12:33 │ 192.168.1.2 │ /assets/bundle.js   │  2097152 │
+└─────────────────────┴─────────────┴─────────────────────┴──────────┘
+```
 
 ### Analyze User Agents (Combined Format)
 
@@ -226,15 +247,50 @@ SELECT user_agent, COUNT(*) as requests
 FROM read_httpd_log('access.log', format_type='combined')
 GROUP BY user_agent
 ORDER BY requests DESC
-LIMIT 10;
+LIMIT 5;
+```
+```
+┌──────────────────────────────────────────────────────────┬──────────┐
+│                        user_agent                        │ requests │
+│                         varchar                          │  int64   │
+├──────────────────────────────────────────────────────────┼──────────┤
+│ Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit... │      823 │
+│ Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Apple... │      456 │
+│ curl/7.68.0                                              │      128 │
+│ Googlebot/2.1 (+http://www.google.com/bot.html)          │       87 │
+│ Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X... │       64 │
+└──────────────────────────────────────────────────────────┴──────────┘
 ```
 
-### Debug Parse Errors
+### Debug Parse Errors with Context
+
+Find parse errors and show surrounding log entries (±2 lines) with raw lines:
 
 ```sql
-SELECT raw_line
-FROM read_httpd_log('access.log', raw=true)
-WHERE parse_error = true;
+WITH logs AS (
+    SELECT line_number, timestamp, status, parse_error, raw_line
+    FROM read_httpd_log('access.log', raw=true)
+),
+errors AS (
+    SELECT line_number
+    FROM logs
+    WHERE parse_error = true
+)
+SELECT DISTINCT l.line_number, l.timestamp, l.status, l.parse_error, l.raw_line
+FROM logs l, errors e
+WHERE l.line_number BETWEEN e.line_number - 2 AND e.line_number + 2
+ORDER BY l.line_number;
+```
+```
+┌─────────────┬─────────────────────┬────────┬─────────────┬──────────────────────────────────────────────────────────┐
+│ line_number │      timestamp      │ status │ parse_error │                         raw_line                         │
+├─────────────┼─────────────────────┼────────┼─────────────┼──────────────────────────────────────────────────────────┤
+│           1 │ 2024-01-15 08:23:45 │    200 │ false       │ 192.168.1.1 - - [15/Jan/2024:08:23:45 +0900] "GET /ap... │
+│           2 │ NULL                │   NULL │ true        │ This is an invalid log line                              │
+│           3 │ 2024-01-15 08:23:46 │    201 │ false       │ 192.168.1.2 - - [15/Jan/2024:08:23:46 +0900] "POST /a... │
+│           4 │ NULL                │   NULL │ true        │ Another bad line without proper format                   │
+│           5 │ 2024-01-15 08:23:47 │    304 │ false       │ 192.168.1.3 - - [15/Jan/2024:08:23:47 +0900] "GET /im... │
+└─────────────┴─────────────────────┴────────┴─────────────┴──────────────────────────────────────────────────────────┘
 ```
 
 ## See Also
