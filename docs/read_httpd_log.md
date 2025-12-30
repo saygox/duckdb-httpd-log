@@ -19,7 +19,8 @@ This function parses Apache access log files and returns them as a queryable tab
 -- Basic usage (format auto-detected)
 SELECT * FROM read_httpd_log('access.log');
 
--- Read from S3 or gzip
+-- Read from S3 (requires httpfs extension)
+LOAD httpfs;
 SELECT * FROM read_httpd_log('s3://bucket/logs/*.log.gz');
 
 -- Auto-select format from httpd.conf
