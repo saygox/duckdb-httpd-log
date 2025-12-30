@@ -769,7 +769,7 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 							// Handle "-": bytes columns get 0, others get NULL
 							if (value == "-") {
 								static const std::unordered_set<string> bytes_columns = {
-								    "bytes", "bytes_clf", "bytes_received", "bytes_sent", "bytes_transferred"};
+								    "bytes", "bytes_received", "bytes_sent", "bytes_transferred"};
 								if (bytes_columns.count(field.column_name)) {
 									FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = 0;
 								} else {

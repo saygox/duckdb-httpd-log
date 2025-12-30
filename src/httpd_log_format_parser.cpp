@@ -57,9 +57,10 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%v", "server_name", LogicalTypeId::VARCHAR, "", 0},      // Canonical name gets base name
     {"%V", "server_name", LogicalTypeId::VARCHAR, "_used", 1}, // Used name gets suffix
 
-    // Bytes directives (collision pair)
-    {"%B", "bytes", LogicalTypeId::BIGINT, "", 0},     // Numeric bytes gets base name
-    {"%b", "bytes", LogicalTypeId::BIGINT, "_clf", 1}, // CLF format gets suffix
+    // Bytes directives (%b and %B are equivalent after "-" to 0 conversion)
+    // When both present, first occurrence is kept, second is skipped
+    {"%B", "bytes", LogicalTypeId::BIGINT},
+    {"%b", "bytes", LogicalTypeId::BIGINT},
 
     // mod_logio byte counting directives (separate from %b/%B)
     {"%I", "bytes_received", LogicalTypeId::BIGINT},
@@ -1065,6 +1066,17 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 				if (idx != best_idx) {
 					parsed_format.fields[idx].should_skip = true;
 				}
+			}
+			continue;
+		}
+
+		// Special case: Bytes - %b and %B are equivalent (both produce "bytes")
+		// "-" in %b is converted to 0, making them identical in value
+		// Keep first occurrence, skip the rest
+		if (column_name == "bytes") {
+			// Mark all but the first as should_skip
+			for (size_t i = 1; i < field_indices.size(); i++) {
+				parsed_format.fields[field_indices[i]].should_skip = true;
 			}
 			continue;
 		}

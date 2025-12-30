@@ -589,8 +589,8 @@ void HttpdLogFileReader::WriteRegularFieldValue(Vector &vec, idx_t row_idx, cons
 	} else if (field.type.id() == LogicalTypeId::BIGINT) {
 		try {
 			if (value == "-") {
-				static const std::unordered_set<string> bytes_columns = {"bytes", "bytes_clf", "bytes_received",
-				                                                         "bytes_sent", "bytes_transferred"};
+				static const std::unordered_set<string> bytes_columns = {"bytes", "bytes_received", "bytes_sent",
+				                                                         "bytes_transferred"};
 				if (bytes_columns.count(field.column_name)) {
 					FlatVector::GetData<int64_t>(vec)[row_idx] = 0;
 				} else {

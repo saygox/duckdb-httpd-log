@@ -136,8 +136,7 @@ Directives follow [Apache 2.4 mod_log_config](https://httpd.apache.org/docs/2.4/
 | `protocol` | VARCHAR | `%H` or `%r` | Request | HTTP protocol version |
 | `status` | INTEGER | `%>s`, `%s` | Response | HTTP status code |
 | `status_original` | INTEGER | `%s` ( + `%>s` ), `%<s` | Response | Original status (when both present) |
-| `bytes` | BIGINT | `%B`, `%b` | Response | Response size in bytes |
-| `bytes_clf` | BIGINT | `%b` ( + `%B` ) | Response | CLF format bytes (when `%b` and `%B` both present) |
+| `bytes` | BIGINT | `%B`, `%b` | Response | Response size in bytes (`%b` "-" converted to 0) |
 | `bytes_received` | BIGINT | `%I` | Response | Bytes received including headers (mod_logio) |
 | `bytes_sent` | BIGINT | `%O` | Response | Bytes sent including headers (mod_logio) |
 | `bytes_transferred` | BIGINT | `%S` | Response | Total bytes transferred (mod_logio) |

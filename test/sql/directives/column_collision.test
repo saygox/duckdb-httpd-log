@@ -117,7 +117,7 @@ FROM (
 1	1
 
 # ============================================================================
-# Test 8: Existing %b/%B resolution still works
+# Test 8: %b/%B are equivalent (first wins, second skipped)
 # ============================================================================
 query II
 SELECT
@@ -130,7 +130,7 @@ FROM (
     )
 );
 ----
-1	1
+1	0
 
 # ============================================================================
 # Test 9: Backward compatibility - single header no change
