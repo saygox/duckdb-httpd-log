@@ -114,55 +114,55 @@ LIMIT 5;
 
 All available Apache LogFormat directives and their corresponding DuckDB columns:
 
-| Column Name | Type | Directive | raw=false | raw=true | Description |
-|-------------|------|-----------|-----------|----------|-------------|
-| `client_ip` | VARCHAR | `%h` | ✓ | ✓ | Client IP address / remote hostname |
-| `peer_host` | VARCHAR | `%{c}h` | ✓ | ✓ | Underlying TCP connection hostname (not modified by mod_remoteip) |
-| `remote_ip` | VARCHAR | `%a` | ✓ | ✓ | Client IP address (mod_remoteip aware) |
-| `peer_ip` | VARCHAR | `%{c}a` | ✓ | ✓ | Underlying peer IP address of the connection |
-| `local_ip` | VARCHAR | `%A` | ✓ | ✓ | Server local IP address |
-| `ident` | VARCHAR | `%l` | ✓ | ✓ | Remote logname from identd (usually "-") |
-| `auth_user` | VARCHAR | `%u` | ✓ | ✓ | Authenticated username from HTTP auth |
-| `timestamp` | TIMESTAMP | `%t` or `%{format}t` | ✓ | ✓ | Parsed request timestamp (converted to UTC) |
-| `method` | VARCHAR | `%m` or `%r` | ✓ | ✓ | HTTP method (GET, POST, etc.) |
-| `path` | VARCHAR | `%>U`, `%U`, or `%r` | ✓ | ✓ | Request URL path (without query string) |
-| `path_original` | VARCHAR | `%U` ( + `%>U` ), `%<U` | ✓ | ✓ | Original path (when both present) |
-| `query_string` | VARCHAR | `%q` or `%r` | ✓ | ✓ | Query string (including leading ?) |
-| `protocol` | VARCHAR | `%H` or `%r` | ✓ | ✓ | HTTP protocol version |
-| `status` | INTEGER | `%>s`, `%s` | ✓ | ✓ | HTTP status code |
-| `status_original` | INTEGER | `%s` ( + `%>s` ), `%<s` | ✓ | ✓ | Original status (when both present) |
-| `bytes` | BIGINT | `%B`, `%b` | ✓ | ✓ | Response size in bytes |
-| `bytes_clf` | BIGINT | `%b` ( + `%B` ) | ✓ | ✓ | CLF format bytes (when `%b` and `%B` both present) |
-| `bytes_received` | BIGINT | `%I` | ✓ | ✓ | Bytes received including headers (mod_logio) |
-| `bytes_sent` | BIGINT | `%O` | ✓ | ✓ | Bytes sent including headers (mod_logio) |
-| `bytes_transferred` | BIGINT | `%S` | ✓ | ✓ | Total bytes transferred (mod_logio) |
-| `server_name` | VARCHAR | `%v`, `%V` | ✓ | ✓ | Server name |
-| `server_name_used` | VARCHAR | `%v` ( + `%V` ) | ✓ | ✓ | Server name used (when `%v` and `%V` both present) |
-| `server_port` | INTEGER | `%p` or `%{canonical}p` | ✓ | ✓ | Canonical server port (%p takes priority when both present) |
-| `local_port` | INTEGER | `%{local}p` | ✓ | ✓ | Server's actual port |
-| `remote_port` | INTEGER | `%{remote}p` | ✓ | ✓ | Client's actual port |
-| `duration` | INTERVAL | `%>D`, `%D`, `%>T`, `%T`, or `%{UNIT}T` | ✓ | ✓ | Request duration (highest precision kept when multiple present) |
-| `duration_original` | INTERVAL | `%D` ( + `%>D` ), `%<D`, `%T` ( + `%>T` ), `%<T` | ✓ | ✓ | Original duration (when both present) |
-| `keepalive_count` | INTEGER | `%k` | ✓ | ✓ | Number of keepalive requests on this connection |
-| `connection_status` | VARCHAR | `%X` | ✓ | ✓ | Connection status: `aborted`, `keepalive`, or `close` |
-| `process_id` | INTEGER | `%P` or `%{pid}P` | ✓ | ✓ | Server process ID (%P takes priority when both present) |
-| `thread_id` | BIGINT | `%{tid}P` | ✓ | ✓ | Server thread ID |
-| `thread_id_hex` | VARCHAR | `%{hextid}P` | ✓ | ✓ | Server thread ID in hexadecimal format |
-| `{header_name}` | VARCHAR | `%{Header}i` or `%{Header}o` | ✓ | ✓ | Request or response header |
-| `content_length` | BIGINT | `%{Content-Length}i` or `%{Content-Length}o` | ✓ | ✓ | Request or response Content-Length |
-| `age` | INTEGER | `%{Age}o` | ✓ | ✓ | Response Age header |
-| `max_forwards` | INTEGER | `%{Max-Forwards}i` | ✓ | ✓ | Request Max-Forwards header |
-| `{cookie_name}` | VARCHAR | `%{Name}C` | ✓ | ✓ | Cookie value |
-| `{var_name}` | VARCHAR | `%{Name}e` | ✓ | ✓ | Environment variable |
-| `{note_name}` | VARCHAR | `%{Name}n` | ✓ | ✓ | Note from another module |
-| `{trailer_name}` | VARCHAR | `%{Name}^ti` | ✓ | ✓ | Request trailer line |
-| `{trailer_name}` | VARCHAR | `%{Name}^to` | ✓ | ✓ | Response trailer line |
-| `filename` | VARCHAR | `%f` | ✓ | ✓ | Requested file path |
-| `request_log_id` | VARCHAR | `%L` | ✓ | ✓ | Request log ID from error log |
-| `handler` | VARCHAR | `%R` | ✓ | ✓ | Response handler name |
-| `log_file` | VARCHAR | (auto) | ✓ | ✓ | Source log file path (always included) |
-| `parse_error` | BOOLEAN | (auto) | ✗ | ✓ | Whether parsing failed |
-| `raw_line` | VARCHAR | (auto) | ✗ | ✓ | Original log line |
+| Column Name | Type | Directive | Description |
+|-------------|------|-----------|-------------|
+| `client_ip` | VARCHAR | `%h` | Client IP address / remote hostname |
+| `peer_host` | VARCHAR | `%{c}h` | Underlying TCP connection hostname (not modified by mod_remoteip) |
+| `remote_ip` | VARCHAR | `%a` | Client IP address (mod_remoteip aware) |
+| `peer_ip` | VARCHAR | `%{c}a` | Underlying peer IP address of the connection |
+| `local_ip` | VARCHAR | `%A` | Server local IP address |
+| `ident` | VARCHAR | `%l` | Remote logname from identd (usually "-") |
+| `auth_user` | VARCHAR | `%u` | Authenticated username from HTTP auth |
+| `timestamp` | TIMESTAMP | `%t` or `%{format}t` | Parsed request timestamp (converted to UTC) |
+| `method` | VARCHAR | `%m` or `%r` | HTTP method (GET, POST, etc.) |
+| `path` | VARCHAR | `%>U`, `%U`, or `%r` | Request URL path (without query string) |
+| `path_original` | VARCHAR | `%U` ( + `%>U` ), `%<U` | Original path (when both present) |
+| `query_string` | VARCHAR | `%q` or `%r` | Query string (including leading ?) |
+| `protocol` | VARCHAR | `%H` or `%r` | HTTP protocol version |
+| `status` | INTEGER | `%>s`, `%s` | HTTP status code |
+| `status_original` | INTEGER | `%s` ( + `%>s` ), `%<s` | Original status (when both present) |
+| `bytes` | BIGINT | `%B`, `%b` | Response size in bytes |
+| `bytes_clf` | BIGINT | `%b` ( + `%B` ) | CLF format bytes (when `%b` and `%B` both present) |
+| `bytes_received` | BIGINT | `%I` | Bytes received including headers (mod_logio) |
+| `bytes_sent` | BIGINT | `%O` | Bytes sent including headers (mod_logio) |
+| `bytes_transferred` | BIGINT | `%S` | Total bytes transferred (mod_logio) |
+| `server_name` | VARCHAR | `%v`, `%V` | Server name |
+| `server_name_used` | VARCHAR | `%v` ( + `%V` ) | Server name used (when `%v` and `%V` both present) |
+| `server_port` | INTEGER | `%p` or `%{canonical}p` | Canonical server port (%p takes priority when both present) |
+| `local_port` | INTEGER | `%{local}p` | Server's actual port |
+| `remote_port` | INTEGER | `%{remote}p` | Client's actual port |
+| `duration` | INTERVAL | `%>D`, `%D`, `%>T`, `%T`, or `%{UNIT}T` | Request duration (highest precision kept when multiple present) |
+| `duration_original` | INTERVAL | `%D` ( + `%>D` ), `%<D`, `%T` ( + `%>T` ), `%<T` | Original duration (when both present) |
+| `keepalive_count` | INTEGER | `%k` | Number of keepalive requests on this connection |
+| `connection_status` | VARCHAR | `%X` | Connection status: `aborted`, `keepalive`, or `close` |
+| `process_id` | INTEGER | `%P` or `%{pid}P` | Server process ID (%P takes priority when both present) |
+| `thread_id` | BIGINT | `%{tid}P` | Server thread ID |
+| `thread_id_hex` | VARCHAR | `%{hextid}P` | Server thread ID in hexadecimal format |
+| `{header_name}` | VARCHAR | `%{Header}i` or `%{Header}o` | Request or response header |
+| `content_length` | BIGINT | `%{Content-Length}i` or `%{Content-Length}o` | Request or response Content-Length |
+| `age` | INTEGER | `%{Age}o` | Response Age header |
+| `max_forwards` | INTEGER | `%{Max-Forwards}i` | Request Max-Forwards header |
+| `{cookie_name}` | VARCHAR | `%{Name}C` | Cookie value |
+| `{var_name}` | VARCHAR | `%{Name}e` | Environment variable |
+| `{note_name}` | VARCHAR | `%{Name}n` | Note from another module |
+| `{trailer_name}` | VARCHAR | `%{Name}^ti` | Request trailer line |
+| `{trailer_name}` | VARCHAR | `%{Name}^to` | Response trailer line |
+| `filename` | VARCHAR | `%f` | Requested file path |
+| `request_log_id` | VARCHAR | `%L` | Request log ID from error log |
+| `handler` | VARCHAR | `%R` | Response handler name |
+| `log_file` | VARCHAR | (auto) | Source log file path (always included) |
+| `parse_error` | BOOLEAN | (auto) | Whether parsing failed (raw=true only) |
+| `raw_line` | VARCHAR | (auto) | Original log line (raw=true only) |
 
 **Notes:**
 - When `%r` is used, it is parsed into `method`, `path`, `query_string`, and `protocol` columns
