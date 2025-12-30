@@ -62,7 +62,7 @@ Binder Error: Referenced column "raw_line" not found in FROM clause
 query I
 SELECT COUNT(*) FROM (
     SELECT
-        client_ip,
+        client_host,
         ident,
         auth_user,
         timestamp,
@@ -85,7 +85,7 @@ SELECT COUNT(*) FROM (
 query I
 SELECT COUNT(*) FROM (
     SELECT
-        client_ip,
+        client_host,
         ident,
         auth_user,
         timestamp,
@@ -213,7 +213,7 @@ WHERE line_number IS NOT NULL;
 
 # Test 23: line_number starts at 1 and increments
 query II
-SELECT line_number, client_ip
+SELECT line_number, client_host
 FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
 ORDER BY line_number
 LIMIT 3;
@@ -266,7 +266,7 @@ test/data/multi_file/server3.log	1	2
 query I
 SELECT COUNT(*) FROM (
     SELECT
-        client_ip,
+        client_host,
         ident,
         auth_user,
         timestamp,

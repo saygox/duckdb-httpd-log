@@ -8,7 +8,7 @@ require httpd_log
 # Note: Default raw=false, so parse_error and raw_line columns are not included
 query TTTTIII
 SELECT
-    client_ip,
+    client_host,
     ident,
     auth_user,
     timestamp,
@@ -89,7 +89,7 @@ Binder Error: Referenced column "raw_line" not found in FROM clause
 query I
 SELECT COUNT(*) FROM (
     SELECT
-        client_ip,
+        client_host,
         ident,
         auth_user,
         timestamp,
@@ -183,7 +183,7 @@ FROM read_httpd_log('test/data/common/*.log', raw=true);
 # Test 20: Verify column names with raw=false (should be 11 columns)
 query TTTTTTTTTTT
 SELECT
-    client_ip,
+    client_host,
     ident,
     auth_user,
     timestamp,
@@ -202,7 +202,7 @@ LIMIT 1;
 # Test 21: Verify column names with raw=true (should be 14 columns)
 query TTTTTTTTTTTIIT
 SELECT
-    client_ip,
+    client_host,
     ident,
     auth_user,
     timestamp,

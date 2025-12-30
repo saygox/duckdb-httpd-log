@@ -59,7 +59,7 @@ FROM read_httpd_log(
     'test/data/directives/header_collision.log',
     format_str='%h %l %u %t "%r" %>s %{Content-Length}i %{Content-Length}o'
 )
-ORDER BY client_ip;
+ORDER BY client_host;
 ----
 1024	2048	200
 NULL	512	201

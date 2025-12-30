@@ -18,7 +18,7 @@ SELECT COUNT(*) FROM read_httpd_log('test/data/common/sample.log');
 
 # Test 3: Basic columns are accessible
 query TTI
-SELECT client_ip, auth_user, status
+SELECT client_host, auth_user, status
 FROM read_httpd_log('test/data/common/sample.log')
 ORDER BY timestamp
 LIMIT 1;

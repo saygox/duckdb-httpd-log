@@ -17,7 +17,7 @@ query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log')
 )
-WHERE column_name IN ('client_ip', 'timestamp', 'method', 'path', 'status', 'bytes', 'log_file');
+WHERE column_name IN ('client_host', 'timestamp', 'method', 'path', 'status', 'bytes', 'log_file');
 ----
 7
 

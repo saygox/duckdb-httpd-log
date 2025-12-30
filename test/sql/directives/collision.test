@@ -173,20 +173,20 @@ ORDER BY column_name;
 protocol
 protocol_note
 
-# Test 12: %{client_ip}C collides with %h (which produces 'client_ip')
+# Test 12: %{client_host}C collides with %h (which produces 'client_host')
 query T
 SELECT column_name
 FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
         'test/data/directives/collision_test.log',
-        format_str='%h %{client_ip}C'
+        format_str='%h %{client_host}C'
     )
 )
-WHERE column_name LIKE 'client_ip%'
+WHERE column_name LIKE 'client_host%'
 ORDER BY column_name;
 ----
-client_ip
-client_ip_cookie
+client_host
+client_host_cookie
 
 # =============================================================================
 # Test Group 3: Multiple collisions of same type (duplicate directives)

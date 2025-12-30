@@ -13,7 +13,7 @@ namespace duckdb {
 // Priority 0 = keeps base name when collision occurs, higher = gets suffix
 const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitions = {
     // Basic directives (no collision rules needed)
-    {"%h", "client_ip", LogicalTypeId::VARCHAR},
+    {"%h", "client_host", LogicalTypeId::VARCHAR},
     {"%a", "remote_ip", LogicalTypeId::VARCHAR}, // Client IP (mod_remoteip aware)
     {"%A", "local_ip", LogicalTypeId::VARCHAR},  // Server local IP
     {"%l", "ident", LogicalTypeId::VARCHAR},

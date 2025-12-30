@@ -68,7 +68,7 @@ NULL
 # Test Group 3: All columns together
 # =============================================================================
 
-# Test 5: All columns present - 4 columns total (client_ip, filename, request_log_id, log_file)
+# Test 5: All columns present - 4 columns total (client_host, filename, request_log_id, log_file)
 query I
 SELECT COUNT(*)
 FROM (
@@ -82,7 +82,7 @@ FROM (
 
 # Test 6: Extract all values from first row
 query TTT
-SELECT client_ip, filename, request_log_id
+SELECT client_host, filename, request_log_id
 FROM read_httpd_log(
     'test/data/directives/filename_logid.log',
     format_str='%h %f %L'

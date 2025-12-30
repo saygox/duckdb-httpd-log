@@ -26,7 +26,7 @@ FROM read_httpd_log(
     'test/data/directives/timestamp_sec.log',
     format_str='%h %{sec}t'
 )
-WHERE client_ip = '192.168.1.1';
+WHERE client_host = '192.168.1.1';
 ----
 2021-01-01 00:00:00
 
@@ -37,7 +37,7 @@ FROM read_httpd_log(
     'test/data/directives/timestamp_sec.log',
     format_str='%h %{sec}t'
 )
-WHERE client_ip = '192.168.1.2';
+WHERE client_host = '192.168.1.2';
 ----
 1970-01-01 00:00:00
 
@@ -48,7 +48,7 @@ FROM read_httpd_log(
     'test/data/directives/timestamp_msec.log',
     format_str='%h %{msec}t'
 )
-WHERE client_ip = '192.168.1.1';
+WHERE client_host = '192.168.1.1';
 ----
 2021-01-01 00:00:00
 
@@ -59,7 +59,7 @@ FROM read_httpd_log(
     'test/data/directives/timestamp_msec.log',
     format_str='%h %{msec}t'
 )
-WHERE client_ip = '192.168.1.2';
+WHERE client_host = '192.168.1.2';
 ----
 2021-01-01 00:00:00.123
 
@@ -70,7 +70,7 @@ FROM read_httpd_log(
     'test/data/directives/timestamp_usec.log',
     format_str='%h %{usec}t'
 )
-WHERE client_ip = '192.168.1.2';
+WHERE client_host = '192.168.1.2';
 ----
 2021-01-01 00:00:00.123456
 
@@ -85,7 +85,7 @@ FROM read_httpd_log(
     'test/data/directives/timestamp_frac.log',
     format_str='%h %l %u %t %{msec_frac}t'
 )
-WHERE client_ip = '192.168.1.1';
+WHERE client_host = '192.168.1.1';
 ----
 2021-01-01 20:55:36.123
 
@@ -96,7 +96,7 @@ FROM read_httpd_log(
     'test/data/directives/timestamp_usec_frac.log',
     format_str='%h %l %u %t %{usec_frac}t'
 )
-WHERE client_ip = '192.168.1.1';
+WHERE client_host = '192.168.1.1';
 ----
 2021-01-01 20:55:36.123456
 
@@ -124,7 +124,7 @@ FROM read_httpd_log(
     'test/data/directives/timestamp_strftime.log',
     format_str='%h %{%Y-%m-%d %H:%M:%S}t'
 )
-WHERE client_ip = '192.168.1.1';
+WHERE client_host = '192.168.1.1';
 ----
 2021-01-01
 
@@ -135,7 +135,7 @@ FROM read_httpd_log(
     'test/data/directives/timestamp_strftime_tz.log',
     format_str='%h %{%d/%b/%Y %T}t %{%z}t'
 )
-WHERE client_ip = '192.168.1.1';
+WHERE client_host = '192.168.1.1';
 ----
 2021-01-01 20:55:36
 
@@ -150,7 +150,7 @@ FROM read_httpd_log(
     'test/data/directives/timestamp_combined.log',
     format_str='%h %{%d/%b/%Y}t %{%T}t.%{msec_frac}t %{%z}t'
 )
-WHERE client_ip = '192.168.1.1';
+WHERE client_host = '192.168.1.1';
 ----
 2021-01-01 20:55:36.123
 
@@ -260,18 +260,18 @@ FROM read_httpd_log(
     'test/data/timestamp_begin_end/begin_end.log',
     format_str='%h %{begin:%d/%b/%Y:%H:%M:%S %z}t %{end:%d/%b/%Y:%H:%M:%S %z}t "%r" %>s'
 )
-WHERE client_ip = '192.168.1.1';
+WHERE client_host = '192.168.1.1';
 ----
 2024-01-15 08:00:00	2024-01-15 08:00:01
 
 # Test 21: begin: and end: show request duration difference
 query TI
-SELECT client_ip, EXTRACT(EPOCH FROM (timestamp - timestamp_original))::INTEGER as duration_sec
+SELECT client_host, EXTRACT(EPOCH FROM (timestamp - timestamp_original))::INTEGER as duration_sec
 FROM read_httpd_log(
     'test/data/timestamp_begin_end/begin_end.log',
     format_str='%h %{begin:%d/%b/%Y:%H:%M:%S %z}t %{end:%d/%b/%Y:%H:%M:%S %z}t "%r" %>s'
 )
-ORDER BY client_ip;
+ORDER BY client_host;
 ----
 192.168.1.1	1
 192.168.1.2	3

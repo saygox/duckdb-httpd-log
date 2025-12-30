@@ -76,12 +76,12 @@ WHERE bytes = 0;
 
 # Test 7: Both %b and %B - first occurrence value is used
 query II
-SELECT bytes, client_ip
+SELECT bytes, client_host
 FROM read_httpd_log(
     'test/data/directives/bytes_b_and_B.log',
     format_str='%h %l %u %t "%r" %>s %b %B'
 )
-ORDER BY client_ip;
+ORDER BY client_host;
 ----
 2326	192.168.1.1
 0	192.168.1.2
@@ -94,7 +94,7 @@ FROM read_httpd_log(
     'test/data/directives/bytes_b_and_B.log',
     format_str='%h %l %u %t "%r" %>s %b %B'
 )
-WHERE client_ip = '192.168.1.1';
+WHERE client_host = '192.168.1.1';
 ----
 2326
 

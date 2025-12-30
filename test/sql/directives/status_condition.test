@@ -71,7 +71,7 @@ FROM read_httpd_log(
     'test/data/directives/status_condition.log',
     format_str='%h %t %>s %{User-Agent}i %{Referer}i'
 )
-ORDER BY client_ip;
+ORDER BY client_host;
 ----
 Mozilla/5.0	http://example.com/
 NULL	NULL

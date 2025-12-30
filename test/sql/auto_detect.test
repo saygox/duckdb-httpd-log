@@ -29,7 +29,7 @@ http://www.example.com/
 
 # Test 4: Verify common schema is auto-detected (should have standard columns)
 query TTTT
-SELECT client_ip, auth_user, method, protocol
+SELECT client_host, auth_user, method, protocol
 FROM read_httpd_log('test/data/common/sample.log')
 LIMIT 1;
 ----

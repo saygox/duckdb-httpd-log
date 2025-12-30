@@ -33,7 +33,7 @@ NULL
 
 # Test 3: Filter by handler
 query TT
-SELECT client_ip, handler
+SELECT client_host, handler
 FROM read_httpd_log(
     'test/data/directives/handler.log',
     format_str='%h %R'
@@ -57,7 +57,7 @@ default-handler	1
 php-script	1
 NULL	1
 
-# Test 5: All columns present - 3 columns total (client_ip, handler, log_file)
+# Test 5: All columns present - 3 columns total (client_host, handler, log_file)
 query I
 SELECT COUNT(*)
 FROM (

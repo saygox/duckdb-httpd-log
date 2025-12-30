@@ -58,12 +58,12 @@ WHERE log_file LIKE '%server1.log%';
 ----
 2
 
-# Test 8: Cross-file aggregation by client_ip
+# Test 8: Cross-file aggregation by client_host
 query TI
-SELECT client_ip, COUNT(*) as request_count
+SELECT client_host, COUNT(*) as request_count
 FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
-GROUP BY client_ip
-ORDER BY client_ip;
+GROUP BY client_host
+ORDER BY client_host;
 ----
 10.0.0.3	1
 10.0.0.4	1
@@ -156,7 +156,7 @@ FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common');
 
 # Test 18: Top clients across all files
 query I
-SELECT COUNT(DISTINCT client_ip) as total_clients
+SELECT COUNT(DISTINCT client_host) as total_clients
 FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common');
 ----
 6

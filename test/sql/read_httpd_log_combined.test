@@ -7,7 +7,7 @@ require httpd_log
 # Test 1: Read combined format with format_type='combined'
 query TTTTIIITTTTT
 SELECT
-    client_ip,
+    client_host,
     ident,
     auth_user,
     timestamp,
@@ -86,7 +86,7 @@ WHERE parse_error = 1;
 query I
 SELECT COUNT(*) FROM (
     SELECT
-        client_ip,
+        client_host,
         ident,
         auth_user,
         timestamp,

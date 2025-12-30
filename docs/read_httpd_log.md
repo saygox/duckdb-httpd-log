@@ -33,13 +33,13 @@ SELECT * FROM read_httpd_log('access.log',
 
 ```sql
 -- Timestamps are converted to UTC, request lines decomposed into method/path/etc.
-SELECT client_ip, timestamp, method, path, status
+SELECT client_host, timestamp, method, path, status
 FROM read_httpd_log('access.log')
 LIMIT 3;
 ```
 ```
 ┌─────────────┬─────────────────────┬────────┬──────────────┬────────┐
-│  client_ip  │      timestamp      │ method │     path     │ status │
+│  client_host  │      timestamp      │ method │     path     │ status │
 │   varchar   │      timestamp      │ varchar│   varchar    │ int32  │
 ├─────────────┼─────────────────────┼────────┼──────────────┼────────┤
 │ 192.168.1.1 │ 2024-01-15 08:23:45 │ GET    │ /index.html  │    200 │
@@ -71,7 +71,7 @@ LogFormat "%v %h %l %u %t \"%r\" %>s %b" vhost
 Use `conf` with `format_type` to select it:
 
 ```sql
-SELECT server_name, client_ip, path, status
+SELECT server_name, client_host, path, status
 FROM read_httpd_log('access.log',
     conf='/etc/httpd/conf/httpd.conf',
     format_type='vhost')
@@ -79,7 +79,7 @@ LIMIT 3;
 ```
 ```
 ┌─────────────────┬─────────────┬──────────────┬────────┐
-│   server_name   │  client_ip  │     path     │ status │
+│   server_name   │  client_host  │     path     │ status │
 │     varchar     │   varchar   │   varchar    │ int32  │
 ├─────────────────┼─────────────┼──────────────┼────────┤
 │ www.example.com │ 192.168.1.1 │ /index.html  │    200 │
@@ -94,13 +94,13 @@ With `raw=true`, rows that failed to parse are included with `parse_error=true`.
 This is useful when log files contain mixed content (e.g., error logs mixed in, or corrupted lines):
 
 ```sql
-SELECT client_ip, status, parse_error, raw_line
+SELECT client_host, status, parse_error, raw_line
 FROM read_httpd_log('access.log', raw=true)
 LIMIT 5;
 ```
 ```
 ┌─────────────┬────────┬─────────────┬──────────────────────────────────────────────────────────┐
-│  client_ip  │ status │ parse_error │                         raw_line                         │
+│  client_host  │ status │ parse_error │                         raw_line                         │
 │   varchar   │ int32  │   boolean   │                         varchar                          │
 ├─────────────┼────────┼─────────────┼──────────────────────────────────────────────────────────┤
 │ 192.168.1.1 │    200 │ false       │ 192.168.1.1 - - [15/Jan/2024:08:23:45 +0900] "GET /in... │
@@ -117,7 +117,7 @@ Directives follow [Apache 2.4 mod_log_config](https://httpd.apache.org/docs/2.4/
 
 | Column Name | Type | Directive | Group | Description |
 |-------------|------|-----------|-------|-------------|
-| `client_ip` | VARCHAR | `%h` | Client | Client IP address / remote hostname |
+| `client_host` | VARCHAR | `%h` | Client | Client IP address / remote hostname |
 | `peer_host` | VARCHAR | `%{c}h` | Client | Underlying TCP connection hostname (not modified by mod_remoteip) |
 | `remote_ip` | VARCHAR | `%a` | Client | Client IP address (mod_remoteip aware) |
 | `peer_ip` | VARCHAR | `%{c}a` | Client | Underlying peer IP address of the connection |
@@ -212,7 +212,7 @@ ORDER BY count DESC;
 ### Find Large Responses
 
 ```sql
-SELECT timestamp, client_ip, path, bytes
+SELECT timestamp, client_host, path, bytes
 FROM read_httpd_log('access.log')
 WHERE bytes > 1000000
 ORDER BY bytes DESC
