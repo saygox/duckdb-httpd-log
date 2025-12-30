@@ -30,13 +30,13 @@ WHERE column_name = 'timestamp' AND column_type = 'TIMESTAMP';
 ----
 1
 
-# Test 4: Raw mode schema has 13 columns
+# Test 4: Raw mode schema has 14 columns
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', raw=true)
 );
 ----
-13
+14
 
 # Test 5: Verify raw mode has diagnostic columns
 query I
@@ -73,13 +73,13 @@ SELECT COUNT(*) FROM (
 ----
 11
 
-# Test 9: Combined format with raw mode has 15 columns (11 base + 2 combined + 2 raw)
+# Test 9: Combined format with raw mode has 16 columns (11 base + 2 combined + 3 raw)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
 );
 ----
-15
+16
 
 # Test 10: Verify timestamp column always exists
 query I

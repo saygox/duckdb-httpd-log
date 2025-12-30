@@ -129,10 +129,10 @@ query I
 SELECT
     (SELECT COUNT(*) FROM (
         DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
-    )) = 13 AND
+    )) = 14 AND
     (SELECT COUNT(*) FROM (
         DESCRIBE SELECT * FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
-    )) = 15;
+    )) = 16;
 ----
 1
 

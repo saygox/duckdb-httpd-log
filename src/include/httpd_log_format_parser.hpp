@@ -76,13 +76,14 @@ struct FormatField {
 	int timestamp_group_id;             // Group ID for combining multiple %t directives (-1 if not grouped)
 	TimestampFormatType timestamp_type; // Type of timestamp format
 	string strftime_format;             // For STRFTIME type: the format string (e.g., "%d/%b/%Y %T")
+	bool is_end_timestamp;              // True for %{end:...}t, false for %{begin:...}t or plain %t
 
 	FormatField(string directive_p, string column_name_p, LogicalType type_p, bool is_quoted_p = false,
 	            string modifier_p = "", bool should_skip_p = false)
 	    : directive(std::move(directive_p)), column_name(std::move(column_name_p)), type(std::move(type_p)),
 	      is_quoted(is_quoted_p), modifier(std::move(modifier_p)), should_skip(should_skip_p), skip_method(false),
 	      skip_path(false), skip_query_string(false), skip_protocol(false), timestamp_group_id(-1),
-	      timestamp_type(TimestampFormatType::APACHE_DEFAULT) {
+	      timestamp_type(TimestampFormatType::APACHE_DEFAULT), is_end_timestamp(false) {
 	}
 };
 

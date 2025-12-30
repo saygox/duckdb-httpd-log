@@ -58,7 +58,7 @@ SELECT raw_line FROM read_httpd_log('test/data/common/with_errors.log', format_t
 ----
 Binder Error: Referenced column "raw_line" not found in FROM clause
 
-# Test 8: All 13 columns accessible with raw=true
+# Test 8: All 14 columns accessible with raw=true
 query I
 SELECT COUNT(*) FROM (
     SELECT
@@ -73,6 +73,7 @@ SELECT COUNT(*) FROM (
         status,
         bytes,
         log_file,
+        line_number,
         parse_error,
         raw_line
     FROM read_httpd_log('test/data/common/sample.log', format_type='common', raw=true)
@@ -196,7 +197,7 @@ SELECT
     (SELECT COUNT(*) FROM read_httpd_log('test/data/**/*.log', format_type='common')) as default_mode,
     (SELECT COUNT(*) FROM read_httpd_log('test/data/**/*.log', format_type='common', raw=true)) as raw_mode;
 ----
-44	133
+44	136
 
 # =============================================================================
 # Test Group: line_number column (raw mode only)

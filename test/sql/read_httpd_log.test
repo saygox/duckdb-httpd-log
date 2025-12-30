@@ -31,13 +31,13 @@ SELECT COUNT(*) FROM (
 ----
 11
 
-# Test 3: Verify schema with raw mode (13 columns: includes parse_error, raw_line)
+# Test 3: Verify schema with raw mode (14 columns: includes line_number, parse_error, raw_line)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', raw=true)
 );
 ----
-13
+14
 
 # Test 4: Verify raw=false skips parse error rows
 query I
@@ -85,7 +85,7 @@ SELECT raw_line FROM read_httpd_log('test/data/common/with_errors.log');
 ----
 Binder Error: Referenced column "raw_line" not found in FROM clause
 
-# Test 10: Verify all 13 columns are returned with raw=true
+# Test 10: Verify all 14 columns are returned with raw=true
 query I
 SELECT COUNT(*) FROM (
     SELECT
@@ -100,6 +100,7 @@ SELECT COUNT(*) FROM (
         status,
         bytes,
         log_file,
+        line_number,
         parse_error,
         raw_line
     FROM read_httpd_log('test/data/common/sample.log', raw=true)
@@ -198,8 +199,8 @@ LIMIT 1;
 ----
 192.168.1.1	NULL	frank	2000-10-10 20:55:36	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log
 
-# Test 21: Verify column names with raw=true (should be 13 columns)
-query TTTTTTTTTTITT
+# Test 21: Verify column names with raw=true (should be 14 columns)
+query TTTTTTTTTTTIIT
 SELECT
     client_ip,
     ident,
@@ -212,12 +213,13 @@ SELECT
     status,
     bytes,
     log_file,
+    line_number,
     parse_error,
     raw_line
 FROM read_httpd_log('test/data/common/sample.log', raw=true)
 LIMIT 1;
 ----
-192.168.1.1	NULL	frank	2000-10-10 20:55:36	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log	0	192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326
+192.168.1.1	NULL	frank	2000-10-10 20:55:36	GET	/index.html	NULL	HTTP/1.0	200	2326	test/data/common/sample.log	1	0	192.168.1.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326
 
 # Test 22: Verify raw_line is populated for successful parses with raw=true
 query I

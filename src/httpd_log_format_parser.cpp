@@ -490,12 +490,15 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 				} else if (modifier == "usec_frac") {
 					field.timestamp_type = TimestampFormatType::FRAC_USEC;
 				} else {
-					// Strip begin: or end: prefix if present (handled as begin: for now)
+					// Strip begin: or end: prefix if present
+					// end: timestamps are final (get base name), begin: or no prefix are original
 					string strftime_fmt = modifier;
 					if (strftime_fmt.substr(0, 6) == "begin:") {
 						strftime_fmt = strftime_fmt.substr(6);
+						field.is_end_timestamp = false;
 					} else if (strftime_fmt.substr(0, 4) == "end:") {
 						strftime_fmt = strftime_fmt.substr(4);
+						field.is_end_timestamp = true;
 					}
 					field.timestamp_type = TimestampFormatType::STRFTIME;
 					field.strftime_format = strftime_fmt;
@@ -666,7 +669,7 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 
 		// Special handling for %t (timestamp)
 		if (field.directive == "%t") {
-			names.push_back("timestamp");
+			names.push_back(field.column_name);
 			return_types.push_back(LogicalType::TIMESTAMP);
 		}
 		// Special handling for %r variants (request) - decompose into method, path, query_string, protocol
@@ -882,19 +885,29 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 
 	// Step 0.5: Group consecutive %t directives into timestamp groups
 	// Multiple %t/%{format}t can be combined into a single timestamp column
+	// begin: and end: timestamps are kept in separate groups
 	{
 		int current_group_id = 0;
 		bool in_timestamp_group = false;
-		idx_t first_ts_in_group = DConstants::INVALID_INDEX;
+		bool current_group_is_end = false; // Track if current group is for end: timestamps
 
 		for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
 			auto &field = parsed_format.fields[i];
 
 			if (field.directive == "%t") {
-				if (!in_timestamp_group) {
+				// Check if we need to start a new group due to begin/end mismatch
+				bool should_start_new_group =
+				    !in_timestamp_group || (in_timestamp_group && field.is_end_timestamp != current_group_is_end);
+
+				if (should_start_new_group) {
+					// End previous group if exists
+					if (in_timestamp_group) {
+						current_group_id++;
+					}
+
 					// Start new group
 					in_timestamp_group = true;
-					first_ts_in_group = i;
+					current_group_is_end = field.is_end_timestamp;
 					field.timestamp_group_id = current_group_id;
 
 					// Create new timestamp group
@@ -955,6 +968,33 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 					// End current group and prepare for next one
 					in_timestamp_group = false;
 					current_group_id++;
+				}
+			}
+		}
+	}
+
+	// Step 0.6: Rename timestamp columns for begin/end collision resolution
+	// When both begin: and end: timestamps exist, end: gets "timestamp", begin: gets "timestamp_original"
+	{
+		bool has_end_timestamp = false;
+		bool has_begin_timestamp = false;
+
+		// Check what types of timestamp groups we have
+		for (const auto &field : parsed_format.fields) {
+			if (field.directive == "%t" && !field.should_skip) {
+				if (field.is_end_timestamp) {
+					has_end_timestamp = true;
+				} else {
+					has_begin_timestamp = true;
+				}
+			}
+		}
+
+		// If both exist, rename begin: timestamps to timestamp_original
+		if (has_end_timestamp && has_begin_timestamp) {
+			for (auto &field : parsed_format.fields) {
+				if (field.directive == "%t" && !field.should_skip && !field.is_end_timestamp) {
+					field.column_name = "timestamp_original";
 				}
 			}
 		}

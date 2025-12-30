@@ -48,7 +48,7 @@ query I
 SELECT COUNT(DISTINCT log_file)
 FROM read_httpd_log('test/data/**/*.log', format_type='common', raw=true);
 ----
-52
+53
 
 # Test 7: Filter data from specific files
 query I
@@ -97,7 +97,7 @@ query I
 SELECT COUNT(DISTINCT log_file)
 FROM read_httpd_log('test/data/**/*.log', format_type='common', raw=true);
 ----
-52
+53
 
 # Test 12: Multi-file with raw mode
 query TI
@@ -196,7 +196,7 @@ SELECT
     COUNT(*) FILTER (WHERE parse_error = true) as invalid
 FROM read_httpd_log('test/data/**/*.log', format_type='common', raw=true);
 ----
-44	89
+44	92
 
 # Test 24: Timestamp range across multiple files
 query I

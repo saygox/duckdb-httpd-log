@@ -128,7 +128,8 @@ Directives follow [Apache 2.4 mod_log_config](https://httpd.apache.org/docs/2.4/
 | `server_name_used` | VARCHAR | `%v` ( + `%V` ) | Server | Server name used (when `%v` and `%V` both present) |
 | `server_port` | INTEGER | `%p` or `%{canonical}p` | Server | Canonical server port (%p takes priority when both present) |
 | `local_port` | INTEGER | `%{local}p` | Server | Server's actual port |
-| `timestamp` | TIMESTAMP | `%t` or `%{format}t` | Time | Parsed request timestamp (converted to UTC) |
+| `timestamp` | TIMESTAMP | `%t` or `%{format}t` | Time | Parsed request timestamp (converted to UTC); `%{end:...}t` gets priority |
+| `timestamp_original` | TIMESTAMP | `%{begin:...}t` ( + `%{end:...}t` ) | Time | Original timestamp (when both begin: and end: present) |
 | `method` | VARCHAR | `%m` or `%r` | Request | HTTP method (GET, POST, etc.) |
 | `path` | VARCHAR | `%>U`, `%U`, or `%r` | Request | Request URL path (without query string) |
 | `path_original` | VARCHAR | `%U` ( + `%>U` ), `%<U` | Request | Original path (when both present) |
@@ -170,6 +171,7 @@ Directives follow [Apache 2.4 mod_log_config](https://httpd.apache.org/docs/2.4/
 - `%r` is parsed into `method`, `path`, `query_string`, and `protocol` columns
 - When `%r` is used with individual directives (`%m`, `%U`, `%q`, `%H`), the individual directive takes priority
 - Multiple timestamp directives are automatically combined into a single `timestamp` column (converted to UTC)
+- `%{begin:...}t` and `%{end:...}t` prefixes are supported; when both present, `end:` gets `timestamp` and `begin:` gets `timestamp_original`
 
 ### Column Name Collision Resolution
 
