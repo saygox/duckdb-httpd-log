@@ -112,7 +112,7 @@ LIMIT 5;
 
 ## Supported Directives
 
-All available Apache LogFormat directives and their corresponding DuckDB columns:
+Directives follow [Apache 2.4 mod_log_config](https://httpd.apache.org/docs/2.4/mod/mod_log_config.html) syntax:
 
 | Column Name | Type | Directive | Group | Description |
 |-------------|------|-----------|-------|-------------|
@@ -165,12 +165,12 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `raw_line` | VARCHAR | (auto) | Auto | Original log line (raw=true only) |
 
 **Notes:**
-- When `%r` is used, it is parsed into `method`, `path`, `query_string`, and `protocol` columns
-- When `%r` is used with individual directives (`%m`, `%U`, `%q`, `%H`), the individual directive takes priority and no duplicate column is created
-- Header names are converted to lowercase with hyphens replaced by underscores (e.g., `User-Agent` → `user_agent`)
+- Dynamic directive names (`%{Name}i`, `%{Name}o`, `%{Name}C`, `%{Name}e`, `%{Name}n`, `%{Name}^ti`, `%{Name}^to`) are converted to lowercase with hyphens replaced by underscores (e.g., `User-Agent` → `user_agent`)
+- Redirect modifiers `%>` (final) and `%<` (original) affect column naming when both are present: `%>s` produces `status`, while `%s` or `%<s` produces `status_original`
 - Same directive twice produces `column`, `column_2`
-
-## Advanced Topics
+- `%r` is parsed into `method`, `path`, `query_string`, and `protocol` columns
+- When `%r` is used with individual directives (`%m`, `%U`, `%q`, `%H`), the individual directive takes priority
+- Multiple timestamp directives are automatically combined into a single `timestamp` column (converted to UTC)
 
 ### Column Name Collision Resolution
 
@@ -194,10 +194,6 @@ When the same directive appears multiple times, duplicates are numbered:
 ```sql
 format_str='%{X}i %{X}i %{X}i'  -- x, x_2, x_3
 ```
-
-### Timestamp Formats
-
-Timestamp directives follow [Apache mod_log_config](https://httpd.apache.org/docs/2.4/mod/mod_log_config.html) syntax. Multiple timestamp directives are automatically combined into a single `timestamp` column (converted to UTC).
 
 ## Examples
 
