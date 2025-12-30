@@ -163,9 +163,8 @@ void HttpdLogMultiFileInfo::BindReader(ClientContext &context, vector<LogicalTyp
 				}
 			}
 			if (!found) {
-				throw BinderException(
-				    "Format '%s' in conf file '%s' not found or does not match the log file format",
-				    httpd_data.format_type, httpd_data.conf);
+				throw BinderException("Format '%s' in conf file '%s' not found or does not match the log file format",
+				                      httpd_data.format_type, httpd_data.conf);
 			}
 		} else {
 			// format_type not specified: try default -> inline -> named order
@@ -190,8 +189,7 @@ void HttpdLogMultiFileInfo::BindReader(ClientContext &context, vector<LogicalTyp
 				}
 			}
 			if (!found) {
-				throw BinderException("No matching format found in conf file '%s' for the log file",
-				                      httpd_data.conf);
+				throw BinderException("No matching format found in conf file '%s' for the log file", httpd_data.conf);
 			}
 		}
 

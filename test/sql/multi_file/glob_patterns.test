@@ -63,7 +63,7 @@ query TI
 SELECT client_ip, COUNT(*) as request_count
 FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
 GROUP BY client_ip
-ORDER BY request_count DESC, client_ip;
+ORDER BY client_ip;
 ----
 10.0.0.3	1
 10.0.0.4	1
@@ -141,10 +141,10 @@ query TI
 SELECT replace(log_file, '\', '/') as log_file, AVG(bytes)::INTEGER as avg_bytes
 FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
 GROUP BY log_file
-ORDER BY avg_bytes DESC;
+ORDER BY replace(log_file, '\', '/');
 ----
-test/data/multi_file/server2.log	6144
 test/data/multi_file/server1.log	1536
+test/data/multi_file/server2.log	6144
 test/data/multi_file/server3.log	768
 
 # Test 17: Unique paths across all files

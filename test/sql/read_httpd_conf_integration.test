@@ -1,6 +1,6 @@
 # name: test/sql/read_httpd_conf_integration.test
 # description: Integration tests for read_httpd_log with conf parameter
-# group: [httpd_conf]
+# group: [sql]
 
 require httpd_log
 

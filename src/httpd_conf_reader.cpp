@@ -60,7 +60,7 @@ vector<string> HttpdConfReader::TokenizeLine(const string &line) {
 }
 
 bool HttpdConfReader::ParseDirectiveLine(const string &line, const string &directive, const string &config_file,
-                                          idx_t line_number, ConfigEntry &entry) {
+                                         idx_t line_number, ConfigEntry &entry) {
 	entry = ConfigEntry();
 	entry.config_file = config_file;
 	entry.line_number = line_number;

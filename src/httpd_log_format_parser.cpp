@@ -20,16 +20,16 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%u", "auth_user", LogicalTypeId::VARCHAR},
     {"%t", "timestamp", LogicalTypeId::TIMESTAMP},
     // Request line directives (original/final collision pair)
-    {"%>r", "request", LogicalTypeId::VARCHAR, "", 0},           // Final request gets base name
-    {"%r", "request", LogicalTypeId::VARCHAR, "_original", 1},   // Original request (default) gets suffix
-    {"%<r", "request", LogicalTypeId::VARCHAR, "_original", 1},  // Explicit original gets suffix
+    {"%>r", "request", LogicalTypeId::VARCHAR, "", 0},          // Final request gets base name
+    {"%r", "request", LogicalTypeId::VARCHAR, "_original", 1},  // Original request (default) gets suffix
+    {"%<r", "request", LogicalTypeId::VARCHAR, "_original", 1}, // Explicit original gets suffix
 
     {"%m", "method", LogicalTypeId::VARCHAR},
 
     // URL path directives (original/final collision pair)
-    {"%>U", "path", LogicalTypeId::VARCHAR, "", 0},              // Final path gets base name
-    {"%U", "path", LogicalTypeId::VARCHAR, "_original", 1},      // Original path (default) gets suffix
-    {"%<U", "path", LogicalTypeId::VARCHAR, "_original", 1},     // Explicit original gets suffix
+    {"%>U", "path", LogicalTypeId::VARCHAR, "", 0},          // Final path gets base name
+    {"%U", "path", LogicalTypeId::VARCHAR, "_original", 1},  // Original path (default) gets suffix
+    {"%<U", "path", LogicalTypeId::VARCHAR, "_original", 1}, // Explicit original gets suffix
     {"%q", "query_string", LogicalTypeId::VARCHAR},
     {"%H", "protocol", LogicalTypeId::VARCHAR},
     {"%p", "server_port", LogicalTypeId::INTEGER},
@@ -41,16 +41,16 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     // Duration directives - collision handled specially by GetDurationPriority()
     // When multiple duration directives exist, only highest precision is kept
     // Also supports original/final modifiers
-    {"%>D", "duration", LogicalTypeId::INTERVAL, "", 0},            // Final duration (us) gets base name
-    {"%D", "duration", LogicalTypeId::INTERVAL, "_original", 1},    // Original duration (us, default) gets suffix
-    {"%<D", "duration", LogicalTypeId::INTERVAL, "_original", 1},   // Explicit original duration (us)
-    {"%>T", "duration", LogicalTypeId::INTERVAL, "", 0},            // Final duration (s) gets base name
-    {"%T", "duration", LogicalTypeId::INTERVAL, "_original", 1},    // Original duration (s, default) gets suffix
-    {"%<T", "duration", LogicalTypeId::INTERVAL, "_original", 1},   // Explicit original duration (s)
+    {"%>D", "duration", LogicalTypeId::INTERVAL, "", 0},          // Final duration (us) gets base name
+    {"%D", "duration", LogicalTypeId::INTERVAL, "_original", 1},  // Original duration (us, default) gets suffix
+    {"%<D", "duration", LogicalTypeId::INTERVAL, "_original", 1}, // Explicit original duration (us)
+    {"%>T", "duration", LogicalTypeId::INTERVAL, "", 0},          // Final duration (s) gets base name
+    {"%T", "duration", LogicalTypeId::INTERVAL, "_original", 1},  // Original duration (s, default) gets suffix
+    {"%<T", "duration", LogicalTypeId::INTERVAL, "_original", 1}, // Explicit original duration (s)
 
     // Status code directives (original/final collision pair)
-    {"%>s", "status", LogicalTypeId::INTEGER, "", 0},         // Final status gets base name
-    {"%s", "status", LogicalTypeId::INTEGER, "_original", 1}, // Original status (default) gets suffix
+    {"%>s", "status", LogicalTypeId::INTEGER, "", 0},          // Final status gets base name
+    {"%s", "status", LogicalTypeId::INTEGER, "_original", 1},  // Original status (default) gets suffix
     {"%<s", "status", LogicalTypeId::INTEGER, "_original", 1}, // Explicit original status gets suffix
 
     // Server name directives (collision pair)

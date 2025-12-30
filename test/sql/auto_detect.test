@@ -1,6 +1,6 @@
 # name: test/sql/auto_detect.test
 # description: Test automatic format detection for read_httpd_log
-# group: [httpd_log]
+# group: [sql]
 
 require httpd_log
 

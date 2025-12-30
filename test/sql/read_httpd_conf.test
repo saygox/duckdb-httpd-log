@@ -1,6 +1,6 @@
 # name: test/sql/read_httpd_conf.test
 # description: Tests for read_httpd_conf function
-# group: [httpd_conf]
+# group: [sql]
 
 require httpd_log
 
