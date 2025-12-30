@@ -3,7 +3,7 @@
 namespace duckdb {
 
 HttpdLogBufferedReader::HttpdLogBufferedReader(FileSystem &fs, const string &path) {
-	file_handle = fs.OpenFile(path, FileFlags::FILE_FLAGS_READ);
+	file_handle = fs.OpenFile(path, FileFlags::FILE_FLAGS_READ | FileCompressionType::AUTO_DETECT);
 	buffer = make_unsafe_uniq_array_uninitialized<char>(BUFFER_SIZE);
 	RefillBuffer();
 }
