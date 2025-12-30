@@ -166,8 +166,7 @@ Directives follow [Apache 2.4 mod_log_config](https://httpd.apache.org/docs/2.4/
 
 **Notes:**
 - Dynamic directive names (`%{Name}i`, `%{Name}o`, `%{Name}C`, `%{Name}e`, `%{Name}n`, `%{Name}^ti`, `%{Name}^to`) are converted to lowercase with hyphens replaced by underscores (e.g., `User-Agent` → `user_agent`)
-- Redirect modifiers `%>` (final) and `%<` (original) affect column naming when both are present: `%>s` produces `status`, while `%s` or `%<s` produces `status_original`
-- Same directive twice produces `column`, `column_2`
+- When directives produce the same column name, suffixes are added to resolve collisions (see [Column Name Collision Resolution](#column-name-collision-resolution))
 - `%r` is parsed into `method`, `path`, `query_string`, and `protocol` columns
 - When `%r` is used with individual directives (`%m`, `%U`, `%q`, `%H`), the individual directive takes priority
 - Multiple timestamp directives are automatically combined into a single `timestamp` column (converted to UTC)
