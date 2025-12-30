@@ -120,9 +120,14 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `peer_host` | VARCHAR | `%{c}h` | Underlying TCP connection hostname (not modified by mod_remoteip) |
 | `remote_ip` | VARCHAR | `%a` | Client IP address (mod_remoteip aware) |
 | `peer_ip` | VARCHAR | `%{c}a` | Underlying peer IP address of the connection |
-| `local_ip` | VARCHAR | `%A` | Server local IP address |
+| `remote_port` | INTEGER | `%{remote}p` | Client's source port |
 | `ident` | VARCHAR | `%l` | Remote logname from identd (usually "-") |
 | `auth_user` | VARCHAR | `%u` | Authenticated username from HTTP auth |
+| `local_ip` | VARCHAR | `%A` | Server local IP address |
+| `server_name` | VARCHAR | `%v`, `%V` | Server name |
+| `server_name_used` | VARCHAR | `%v` ( + `%V` ) | Server name used (when `%v` and `%V` both present) |
+| `server_port` | INTEGER | `%p` or `%{canonical}p` | Canonical server port (%p takes priority when both present) |
+| `local_port` | INTEGER | `%{local}p` | Server's actual port |
 | `timestamp` | TIMESTAMP | `%t` or `%{format}t` | Parsed request timestamp (converted to UTC) |
 | `method` | VARCHAR | `%m` or `%r` | HTTP method (GET, POST, etc.) |
 | `path` | VARCHAR | `%>U`, `%U`, or `%r` | Request URL path (without query string) |
@@ -136,11 +141,6 @@ All available Apache LogFormat directives and their corresponding DuckDB columns
 | `bytes_received` | BIGINT | `%I` | Bytes received including headers (mod_logio) |
 | `bytes_sent` | BIGINT | `%O` | Bytes sent including headers (mod_logio) |
 | `bytes_transferred` | BIGINT | `%S` | Total bytes transferred (mod_logio) |
-| `server_name` | VARCHAR | `%v`, `%V` | Server name |
-| `server_name_used` | VARCHAR | `%v` ( + `%V` ) | Server name used (when `%v` and `%V` both present) |
-| `server_port` | INTEGER | `%p` or `%{canonical}p` | Canonical server port (%p takes priority when both present) |
-| `local_port` | INTEGER | `%{local}p` | Server's actual port |
-| `remote_port` | INTEGER | `%{remote}p` | Client's actual port |
 | `duration` | INTERVAL | `%>D`, `%D`, `%>T`, `%T`, or `%{UNIT}T` | Request duration (highest precision kept when multiple present) |
 | `duration_original` | INTERVAL | `%D` ( + `%>D` ), `%<D`, `%T` ( + `%>T` ), `%<T` | Original duration (when both present) |
 | `keepalive_count` | INTEGER | `%k` | Number of keepalive requests on this connection |
