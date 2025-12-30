@@ -49,22 +49,66 @@ LIMIT 3;
 
 ## Parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `path` | VARCHAR | File path or glob pattern (required) |
-| `format_type` | VARCHAR | `'common'` (default), `'combined'`, or nickname from conf |
-| `format_str` | VARCHAR | Custom Apache LogFormat string (overrides format_type) |
-| `conf` | VARCHAR | Path to httpd.conf for format lookup |
-| `raw` | BOOLEAN | Include diagnostic columns (default: false) |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `path` | VARCHAR | (required) | File path or glob pattern |
+| `conf` | VARCHAR | - | Path to httpd.conf for automatic format selection |
+| `format_type` | VARCHAR | (auto-detect) | `'common'`, `'combined'`, or nickname from conf |
+| `format_str` | VARCHAR | - | Custom Apache LogFormat string (overrides format_type) |
+| `raw` | BOOLEAN | false | Include diagnostic columns |
 
-## Output Schema
+### Specifying Format Explicitly
 
-### Diagnostic Columns (raw=true only)
+When auto-detection fails (e.g., misidentifies combined as common), specify the format explicitly.
+If your httpd.conf defines a custom format:
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `parse_error` | BOOLEAN | Whether parsing failed |
-| `raw_line` | VARCHAR | Original log line |
+```apache
+# In httpd.conf
+LogFormat "%v %h %l %u %t \"%r\" %>s %b" vhost
+```
+
+Use `conf` with `format_type` to select it:
+
+```sql
+SELECT server_name, client_ip, path, status
+FROM read_httpd_log('access.log',
+    conf='/etc/httpd/conf/httpd.conf',
+    format_type='vhost')
+LIMIT 3;
+```
+```
+┌─────────────────┬─────────────┬──────────────┬────────┐
+│   server_name   │  client_ip  │     path     │ status │
+│     varchar     │   varchar   │   varchar    │ int32  │
+├─────────────────┼─────────────┼──────────────┼────────┤
+│ www.example.com │ 192.168.1.1 │ /index.html  │    200 │
+│ api.example.com │ 192.168.1.2 │ /api/users   │    200 │
+│ www.example.com │ 192.168.1.3 │ /style.css   │    304 │
+└─────────────────┴─────────────┴──────────────┴────────┘
+```
+
+### Detecting Parse Errors
+
+With `raw=true`, rows that failed to parse are included with `parse_error=true`.
+This is useful when log files contain mixed content (e.g., error logs mixed in, or corrupted lines):
+
+```sql
+SELECT client_ip, status, parse_error, raw_line
+FROM read_httpd_log('access.log', raw=true)
+LIMIT 5;
+```
+```
+┌─────────────┬────────┬─────────────┬──────────────────────────────────────────────────────────┐
+│  client_ip  │ status │ parse_error │                         raw_line                         │
+│   varchar   │ int32  │   boolean   │                         varchar                          │
+├─────────────┼────────┼─────────────┼──────────────────────────────────────────────────────────┤
+│ 192.168.1.1 │    200 │ false       │ 192.168.1.1 - - [15/Jan/2024:08:23:45 +0900] "GET /in... │
+│ 192.168.1.2 │    201 │ false       │ 192.168.1.2 - - [15/Jan/2024:08:23:46 +0900] "POST /a... │
+│ NULL        │   NULL │ true        │ [Mon Jan 15 08:23:47 2024] [error] [client 192.168.1.... │
+│ 192.168.1.3 │    304 │ false       │ 192.168.1.3 - - [15/Jan/2024:08:23:47 +0900] "GET /st... │
+│ NULL        │   NULL │ true        │ PHP Fatal error: Uncaught Exception in /var/www/html... │
+└─────────────┴────────┴─────────────┴──────────────────────────────────────────────────────────┘
+```
 
 ## Supported Directives
 
