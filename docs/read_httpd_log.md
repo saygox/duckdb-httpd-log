@@ -181,11 +181,12 @@ When multiple directives produce the same column name, collisions are resolved b
 | Priority | Directive | Suffix |
 |----------|-----------|--------|
 | 0 | `%>s`, `%>U`, etc. | (none) |
-| 1 | `%s`, `%i` | `_original` / `_in` |
-| 2 | `%o` | `_out` |
-| 3 | `%C` | `_cookie` |
-| 4 | `%e` | `_env` |
-| 5 | `%n` | `_note` |
+| 1 | `%s`, `%U`, etc. | `_original` |
+| 2 | `%i` | `_in` |
+| 3 | `%o` | `_out` |
+| 4 | `%C` | `_cookie` |
+| 5 | `%e` | `_env` |
+| 6 | `%n` | `_note` |
 
 Example:
 ```sql

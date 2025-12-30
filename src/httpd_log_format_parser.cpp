@@ -73,17 +73,18 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%R", "handler", LogicalTypeId::VARCHAR},
 
     // Header directives (dynamic column name, unique priorities for collision resolution)
-    {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers (highest among dynamic)
-    {"%o", "", LogicalTypeId::VARCHAR, "_out", 2}, // Response headers
+    // Priority 0 = final (e.g., %>s), Priority 1 = original (e.g., %s), Priority 2+ = dynamic directives
+    {"%i", "", LogicalTypeId::VARCHAR, "_in", 2},  // Request headers
+    {"%o", "", LogicalTypeId::VARCHAR, "_out", 3}, // Response headers
 
     // Cookie, Environment, Note directives (dynamic column name)
-    {"%C", "", LogicalTypeId::VARCHAR, "_cookie", 3},
-    {"%e", "", LogicalTypeId::VARCHAR, "_env", 4},
-    {"%n", "", LogicalTypeId::VARCHAR, "_note", 5},
+    {"%C", "", LogicalTypeId::VARCHAR, "_cookie", 4},
+    {"%e", "", LogicalTypeId::VARCHAR, "_env", 5},
+    {"%n", "", LogicalTypeId::VARCHAR, "_note", 6},
 
     // Trailer directives (dynamic column name)
-    {"%^ti", "", LogicalTypeId::VARCHAR, "_trail_in", 6},
-    {"%^to", "", LogicalTypeId::VARCHAR, "_trail_out", 7},
+    {"%^ti", "", LogicalTypeId::VARCHAR, "_trail_in", 7},
+    {"%^to", "", LogicalTypeId::VARCHAR, "_trail_out", 8},
 };
 
 // Typed header rules - maps header names to specific types with direction constraints
