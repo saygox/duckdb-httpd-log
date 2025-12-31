@@ -236,9 +236,11 @@ void HttpdLogMultiFileInfo::BindReader(ClientContext &context, vector<LogicalTyp
 optional_idx HttpdLogMultiFileInfo::MaxThreads(const MultiFileBindData &bind_data_p,
                                                const MultiFileGlobalState &global_state,
                                                FileExpandResult expand_result) {
-	// httpd_log has no intra-file parallelism (line-based format)
-	// Max threads = number of files (one file per thread)
-	return bind_data_p.file_list->GetTotalFileCount();
+	// TODO: Currently using single-threaded execution due to race condition issues
+	// with the MultiFile framework. The framework may call Scan on multiple threads
+	// for the same file, which causes data corruption in httpd_log's buffered_reader.
+	// Future work: investigate how to properly synchronize or use thread-local state.
+	return 1;
 }
 
 unique_ptr<GlobalTableFunctionState> HttpdLogMultiFileInfo::InitializeGlobalState(ClientContext &context,
