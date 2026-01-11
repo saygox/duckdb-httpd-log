@@ -328,16 +328,25 @@ bool HttpdLogFileReader::TryInitializeScan(ClientContext &context, GlobalTableFu
                                            LocalTableFunctionState &lstate) {
 	// httpd_log has no intra-file parallelism (unlike Parquet row groups)
 	// TryInitializeScan should return true only once per file
-	if (scan_initialized || finished) {
+
+	// Thread-safe check: if already finished, return false
+	if (finished.load(std::memory_order_acquire)) {
 		return false;
 	}
-	scan_initialized = true;
+
+	// Thread-safe atomic check-and-set: only one thread can succeed
+	bool expected = false;
+	if (!scan_initialized.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+		// Another thread already initialized this reader
+		return false;
+	}
+
 	return true;
 }
 
 void HttpdLogFileReader::Scan(ClientContext &context, GlobalTableFunctionState &global_state,
                               LocalTableFunctionState &local_state, DataChunk &output) {
-	if (finished) {
+	if (finished.load(std::memory_order_acquire)) {
 		return;
 	}
 
@@ -346,15 +355,22 @@ void HttpdLogFileReader::Scan(ClientContext &context, GlobalTableFunctionState &
 	const auto &parsed_format = bind_data.parsed_format;
 	bool raw_mode = bind_data.raw_mode;
 
+	// Get thread-local parsing buffers for thread-safe RE2 matching
+	auto &lstate = local_state.Cast<HttpdLogLocalState>();
+	if (parsed_format.compiled_regex) {
+		int num_groups = parsed_format.compiled_regex->NumberOfCapturingGroups();
+		lstate.InitializeBuffers(num_groups);
+	}
+
 	// Use column_ids from BaseFileReader (set by MultiFileColumnMapper)
 	auto &local_column_ids = column_ids;
 
-	while (output_idx < BATCH_SIZE && !finished) {
+	while (output_idx < BATCH_SIZE && !finished.load(std::memory_order_acquire)) {
 		string line;
 		bool has_line = buffered_reader->ReadLine(line);
 
 		if (!has_line) {
-			finished = true;
+			finished.store(true, std::memory_order_release);
 			break;
 		}
 
@@ -365,8 +381,9 @@ void HttpdLogFileReader::Scan(ClientContext &context, GlobalTableFunctionState &
 			continue;
 		}
 
-		// Parse the line
-		vector<string> parsed_values = HttpdLogFormatParser::ParseLogLine(line, parsed_format);
+		// Parse the line using thread-local buffers for thread-safety
+		vector<string> parsed_values = HttpdLogFormatParser::ParseLogLine(
+		    line, parsed_format, lstate.matches, lstate.args, lstate.arg_ptrs);
 		bool parse_error = parsed_values.empty();
 
 		// Skip error rows when raw_mode is false
