@@ -31,14 +31,14 @@ LOAD httpd_log;
 ### Basic Usage
 
 ```sql
-SELECT client_ip, method, path, status, bytes
+SELECT client_host, method, path, status, bytes
 FROM read_httpd_log('access.log')
 LIMIT 5;
 ```
 
 ```
 ┌─────────────┬────────┬───────────────┬────────┬───────┐
-│  client_ip  │ method │     path      │ status │ bytes │
+│  client_host  │ method │     path      │ status │ bytes │
 │   varchar   │ varchar│    varchar    │ int32  │ int64 │
 ├─────────────┼────────┼───────────────┼────────┼───────┤
 │ 192.168.1.1 │ GET    │ /index.html   │    200 │  2326 │
@@ -76,7 +76,7 @@ SELECT * FROM read_httpd_log('access.log',
     format_str='%h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-agent}i"');
 
 -- Custom format with request duration
-SELECT client_ip, path, status, duration
+SELECT client_host, path, status, duration
 FROM read_httpd_log('access.log',
     format_str='%h %l %u %t "%r" %>s %b %D');
 ```
@@ -181,7 +181,7 @@ The output schema depends on the log format:
 | Combined | 13 | 15 |
 | Custom | Varies | +2 diagnostic columns |
 
-Common columns include: `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `log_file`
+Common columns include: `client_host`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `log_file`
 
 Combined format adds: `referer`, `user_agent`
 

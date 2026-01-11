@@ -87,7 +87,7 @@ SELECT raw_line FROM read_httpd_log('test/data/with_errors.log');
 -- Verify all 13 columns are returned with raw=true
 SELECT COUNT(*) FROM (
     SELECT
-        client_ip,
+        client_host,
         ident,
         auth_user,
         timestamp,
@@ -110,7 +110,7 @@ SELECT COUNT(*) FROM (
 ```sql
 -- Verify column names with raw=false (should be 11 columns)
 SELECT
-    client_ip,
+    client_host,
     ident,
     auth_user,
     timestamp,
@@ -131,7 +131,7 @@ LIMIT 1;
 ```sql
 -- Verify column names with raw=true (should be 13 columns)
 SELECT
-    client_ip,
+    client_host,
     ident,
     auth_user,
     timestamp,
