@@ -12,7 +12,7 @@ A DuckDB extension for reading and parsing Apache HTTP server log files directly
 
 ## Installation
 
-Currently, binaries are available from [GitHub Releases](https://github.com/itosaygo/httpd_log/releases).
+Currently, binaries are available from [GitHub Releases](https://github.com/saygox/duckdb-httpd-log/releases).
 
 ```bash
 # Download the binary for your platform and extract it
