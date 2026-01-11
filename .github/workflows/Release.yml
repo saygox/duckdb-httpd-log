@@ -76,12 +76,49 @@ jobs:
           echo "Release files prepared:"
           ls -lh ./release-files
 
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Fetch all tags to find previous release
+          git fetch --tags --force
+
+          # Get previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "Generating changelog from $PREV_TAG to ${{ github.ref_name }}"
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges)
+          else
+            echo "No previous tag found, using last 20 commits"
+            CHANGELOG=$(git log --pretty=format:"- %s" --no-merges -20)
+          fi
+
+          # Output multiline string to GITHUB_OUTPUT
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           draft: false
           prerelease: false
-          generate_release_notes: true
+          body: |
+            ## Changes
+
+            ${{ steps.changelog.outputs.changelog }}
+
+            ---
+
+            ## Installation
+
+            ```sql
+            -- DuckDB v1.4.3+
+            INSTALL httpd_log FROM 'https://github.com/saygox/duckdb-httpd-log/releases/download/${{ github.ref_name }}/';
+            LOAD httpd_log;
+            ```
+
+            See [README](https://github.com/saygox/duckdb-httpd-log#readme) for usage examples.
           files: ./release-files/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
