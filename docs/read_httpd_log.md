@@ -39,7 +39,7 @@ LIMIT 3;
 ```
 ```
 ┌─────────────┬─────────────────────┬────────┬──────────────┬────────┐
-│  client_host  │      timestamp      │ method │     path     │ status │
+│ client_host │      timestamp      │ method │     path     │ status │
 │   varchar   │      timestamp      │ varchar│   varchar    │ int32  │
 ├─────────────┼─────────────────────┼────────┼──────────────┼────────┤
 │ 192.168.1.1 │ 2024-01-15 08:23:45 │ GET    │ /index.html  │    200 │
@@ -79,7 +79,7 @@ LIMIT 3;
 ```
 ```
 ┌─────────────────┬─────────────┬──────────────┬────────┐
-│   server_name   │  client_host  │     path     │ status │
+│   server_name   │ client_host │     path     │ status │
 │     varchar     │   varchar   │   varchar    │ int32  │
 ├─────────────────┼─────────────┼──────────────┼────────┤
 │ www.example.com │ 192.168.1.1 │ /index.html  │    200 │
@@ -100,7 +100,7 @@ LIMIT 5;
 ```
 ```
 ┌─────────────┬────────┬─────────────┬──────────────────────────────────────────────────────────┐
-│  client_host  │ status │ parse_error │                         raw_line                         │
+│ client_host │ status │ parse_error │                         raw_line                         │
 │   varchar   │ int32  │   boolean   │                         varchar                          │
 ├─────────────┼────────┼─────────────┼──────────────────────────────────────────────────────────┤
 │ 192.168.1.1 │    200 │ false       │ 192.168.1.1 - - [15/Jan/2024:08:23:45 +0900] "GET /in... │
