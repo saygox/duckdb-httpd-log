@@ -104,21 +104,7 @@ WHERE column_name = 'bytes';
 ----
 1
 
-# Test 9: Both %b and %B - both are present with distinct column names
-query II
-SELECT
-    COUNT(*) FILTER (WHERE column_name = 'bytes_clf') as has_bytes_clf,
-    COUNT(*) FILTER (WHERE column_name = 'bytes') as has_bytes
-FROM (
-    DESCRIBE SELECT * FROM read_httpd_log(
-        'test/data/directives/bytes_both.log',
-        format_str='%h %t "%r" %>s %b %B'
-    )
-);
-----
-1	1
-
-# Test 10: Verify both columns are present (bytes_clf and bytes)
+# Test 9: Both %b and %B - only one bytes column (first wins, second skipped)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
@@ -126,9 +112,21 @@ SELECT COUNT(*) FROM (
         format_str='%h %t "%r" %>s %b %B'
     )
 )
-WHERE column_name LIKE 'bytes%';
+WHERE column_name = 'bytes';
 ----
-2
+1
+
+# Test 10: Both %b and %B - no bytes_clf column exists
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/bytes_both.log',
+        format_str='%h %t "%r" %>s %b %B'
+    )
+)
+WHERE column_name = 'bytes_clf';
+----
+0
 
 # Test 11: All three pairs together - complex scenario
 query III

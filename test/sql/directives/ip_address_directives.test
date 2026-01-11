@@ -101,7 +101,7 @@ WHERE column_name = 'peer_host';
 
 # Test 9: %h and %{c}h together - both columns present
 query II
-SELECT client_ip, peer_host
+SELECT client_host, peer_host
 FROM read_httpd_log(
     'test/data/directives/hostname.log',
     format_str='%h %{c}h %t "%r" %>s %b'

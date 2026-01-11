@@ -5,17 +5,17 @@ This document contains SQL queries for testing the raw mode parameter functional
 ## Test 1: Basic schema verification
 
 ```sql
--- Verify schema without raw mode (10 columns: no timestamp_raw, parse_error, raw_line)
+-- Verify schema without raw mode (11 columns: no parse_error, raw_line)
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/sample.log')
 );
--- Expected: 10
+-- Expected: 11
 ```
 
 ## Test 2: Schema with raw mode
 
 ```sql
--- Verify schema with raw mode (13 columns: includes timestamp_raw, parse_error, raw_line)
+-- Verify schema with raw mode (13 columns: includes parse_error, raw_line)
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/sample.log', raw=true)
 );
@@ -81,27 +81,7 @@ SELECT raw_line FROM read_httpd_log('test/data/with_errors.log');
 -- Expected: Error - column "raw_line" not found
 ```
 
-## Test 9: Column access error (timestamp_raw)
-
-```sql
--- Verify timestamp_raw column does not exist with raw=false
-SELECT timestamp_raw FROM read_httpd_log('test/data/sample.log');
--- Expected: Error - column "timestamp_raw" not found
-```
-
-## Test 10: Timestamp raw data
-
-```sql
--- Verify timestamp_raw is populated with raw=true
-SELECT timestamp_raw
-FROM read_httpd_log('test/data/sample.log', raw=true)
-WHERE parse_error = false
-ORDER BY timestamp
-LIMIT 1;
--- Expected: 10/Oct/2000:13:55:36 -0700
-```
-
-## Test 11: All columns with raw=true
+## Test 9: All columns with raw=true
 
 ```sql
 -- Verify all 13 columns are returned with raw=true
@@ -111,13 +91,13 @@ SELECT COUNT(*) FROM (
         ident,
         auth_user,
         timestamp,
-        timestamp_raw,
         method,
         path,
+        query_string,
         protocol,
         status,
         bytes,
-        filename,
+        log_file,
         parse_error,
         raw_line
     FROM read_httpd_log('test/data/sample.log', raw=true)
@@ -125,10 +105,10 @@ SELECT COUNT(*) FROM (
 -- Expected: 6
 ```
 
-## Test 12: Row data with raw=false
+## Test 10: Row data with raw=false
 
 ```sql
--- Verify column names with raw=false (should be 10 columns)
+-- Verify column names with raw=false (should be 11 columns)
 SELECT
     client_ip,
     ident,
@@ -136,16 +116,17 @@ SELECT
     timestamp,
     method,
     path,
+    query_string,
     protocol,
     status,
     bytes,
-    filename
+    log_file
 FROM read_httpd_log('test/data/sample.log')
 LIMIT 1;
--- Expected: Single row with 10 columns
+-- Expected: Single row with 11 columns
 ```
 
-## Test 13: Row data with raw=true
+## Test 11: Row data with raw=true
 
 ```sql
 -- Verify column names with raw=true (should be 13 columns)
@@ -154,33 +135,33 @@ SELECT
     ident,
     auth_user,
     timestamp,
-    timestamp_raw,
     method,
     path,
+    query_string,
     protocol,
     status,
     bytes,
-    filename,
+    log_file,
     parse_error,
     raw_line
 FROM read_httpd_log('test/data/sample.log', raw=true)
 LIMIT 1;
 -- Expected: Single row with 13 columns
 -- parse_error should be 0
--- raw_line should be NULL for successful parses
+-- raw_line should contain the original log line
 ```
 
-## Test 14: Raw line NULL for successful parses
+## Test 12: Raw line populated for successful parses
 
 ```sql
--- Verify raw_line is NULL for successful parses with raw=true
+-- Verify raw_line is populated for successful parses with raw=true
 SELECT COUNT(*)
 FROM read_httpd_log('test/data/sample.log', raw=true)
-WHERE parse_error = false AND raw_line IS NULL;
+WHERE parse_error = false AND raw_line IS NOT NULL;
 -- Expected: 6 (all successful parses)
 ```
 
-## Test 15: Compatibility with format_type
+## Test 13: Compatibility with format_type
 
 ```sql
 -- Verify both raw=true and format_type work together
@@ -189,7 +170,7 @@ FROM read_httpd_log('test/data/sample.log', format_type='common', raw=true);
 -- Expected: 6
 ```
 
-## Test 16: Total row count comparison
+## Test 14: Total row count comparison
 
 ```sql
 -- Count total records across all test files (raw=false skips errors)

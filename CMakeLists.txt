@@ -19,6 +19,9 @@ set(EXTENSION_SOURCES
     src/httpd_log_format_parser.cpp
     src/httpd_log_table_function.cpp
     src/httpd_log_buffered_reader.cpp
+    src/httpd_log_multi_file_info.cpp
+    src/httpd_log_file_reader.cpp
+    src/httpd_conf_reader.cpp
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})

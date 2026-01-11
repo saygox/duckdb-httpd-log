@@ -17,7 +17,7 @@ WHERE column_name = 'handler';
 ----
 handler	VARCHAR
 
-# Test 2: Extract handler values
+# Test 2: Extract handler values (NULL comes last in ORDER BY)
 query T
 SELECT handler
 FROM read_httpd_log(
@@ -26,14 +26,14 @@ FROM read_httpd_log(
 )
 ORDER BY handler;
 ----
--
 cgi-script
 default-handler
 php-script
+NULL
 
 # Test 3: Filter by handler
 query TT
-SELECT client_ip, handler
+SELECT client_host, handler
 FROM read_httpd_log(
     'test/data/directives/handler.log',
     format_str='%h %R'
@@ -42,7 +42,7 @@ WHERE handler = 'cgi-script';
 ----
 192.168.1.2	cgi-script
 
-# Test 4: Count by handler type
+# Test 4: Count by handler type (NULL comes last in ORDER BY)
 query TI
 SELECT handler, COUNT(*) as count
 FROM read_httpd_log(
@@ -52,12 +52,12 @@ FROM read_httpd_log(
 GROUP BY handler
 ORDER BY handler;
 ----
--	1
 cgi-script	1
 default-handler	1
 php-script	1
+NULL	1
 
-# Test 5: All columns present - 3 columns total (client_ip, handler, log_file)
+# Test 5: All columns present - 3 columns total (client_host, handler, log_file)
 query I
 SELECT COUNT(*)
 FROM (

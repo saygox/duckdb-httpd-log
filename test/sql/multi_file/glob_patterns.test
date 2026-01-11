@@ -7,21 +7,21 @@ require httpd_log
 # Test 1: Read multiple files with wildcard
 query I
 SELECT COUNT(DISTINCT log_file)
-FROM read_httpd_log('test/data/multi_file/server*.log');
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common');
 ----
 3
 
 # Test 2: Count total rows across multiple files
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/multi_file/server*.log');
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common');
 ----
 6
 
 # Test 3: Verify log_file metadata for each file
 query TI
 SELECT replace(log_file, '\', '/') as log_file, COUNT(*) as rows
-FROM read_httpd_log('test/data/multi_file/server*.log')
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
 GROUP BY log_file
 ORDER BY replace(log_file, '\', '/');
 ----
@@ -32,38 +32,38 @@ test/data/multi_file/server3.log	2
 # Test 4: Aggregate data across multiple files
 query I
 SELECT SUM(bytes)
-FROM read_httpd_log('test/data/multi_file/server*.log');
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common');
 ----
 16896
 
 # Test 5: Read all files in a directory using **
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/common/*.log');
+FROM read_httpd_log('test/data/common/*.log', format_type='common');
 ----
 9
 
 # Test 6: Recursive pattern with subdirectories (common format only)
 query I
 SELECT COUNT(DISTINCT log_file)
-FROM read_httpd_log('test/data/**/*.log');
+FROM read_httpd_log('test/data/**/*.log', format_type='common', raw=true);
 ----
-16
+53
 
 # Test 7: Filter data from specific files
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/multi_file/server*.log')
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
 WHERE log_file LIKE '%server1.log%';
 ----
 2
 
-# Test 8: Cross-file aggregation by client_ip
+# Test 8: Cross-file aggregation by client_host
 query TI
-SELECT client_ip, COUNT(*) as request_count
-FROM read_httpd_log('test/data/multi_file/server*.log')
-GROUP BY client_ip
-ORDER BY request_count DESC, client_ip;
+SELECT client_host, COUNT(*) as request_count
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
+GROUP BY client_host
+ORDER BY client_host;
 ----
 10.0.0.3	1
 10.0.0.4	1
@@ -75,7 +75,7 @@ ORDER BY request_count DESC, client_ip;
 # Test 9: Cross-file aggregation by status code
 query II
 SELECT status, COUNT(*) as count
-FROM read_httpd_log('test/data/multi_file/server*.log')
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
 GROUP BY status
 ORDER BY status;
 ----
@@ -85,7 +85,7 @@ ORDER BY status;
 # Test 10: Cross-file aggregation by HTTP method
 query TI
 SELECT method, COUNT(*) as count
-FROM read_httpd_log('test/data/multi_file/server*.log')
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
 GROUP BY method
 ORDER BY method;
 ----
@@ -95,14 +95,14 @@ POST	1
 # Test 11: Verify distinct log_files with **/* pattern (common format only)
 query I
 SELECT COUNT(DISTINCT log_file)
-FROM read_httpd_log('test/data/**/*.log');
+FROM read_httpd_log('test/data/**/*.log', format_type='common', raw=true);
 ----
-16
+53
 
 # Test 12: Multi-file with raw mode
 query TI
 SELECT replace(log_file, '\', '/') as log_file, COUNT(*) as count
-FROM read_httpd_log('test/data/multi_file/server*.log', raw=true)
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common', raw=true)
 GROUP BY log_file
 ORDER BY replace(log_file, '\', '/');
 ----
@@ -113,14 +113,14 @@ test/data/multi_file/server3.log	2
 # Test 13: Parse errors across multiple files
 query I
 SELECT SUM(parse_error::INTEGER)
-FROM read_httpd_log('test/data/common/*.log', raw=true);
+FROM read_httpd_log('test/data/common/*.log', format_type='common', raw=true);
 ----
 2
 
 # Test 14: File-level error distribution
 query TI
 SELECT replace(log_file, '\', '/') as log_file, SUM(parse_error::INTEGER) as errors
-FROM read_httpd_log('test/data/common/*.log', raw=true)
+FROM read_httpd_log('test/data/common/*.log', format_type='common', raw=true)
 GROUP BY log_file
 HAVING SUM(parse_error::INTEGER) > 0
 ORDER BY replace(log_file, '\', '/');
@@ -130,7 +130,7 @@ test/data/common/with_errors.log	2
 # Test 15: Time-based ordering across files
 query T
 SELECT replace(log_file, '\', '/') as log_file
-FROM read_httpd_log('test/data/multi_file/server*.log')
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
 ORDER BY timestamp
 LIMIT 1;
 ----
@@ -139,25 +139,25 @@ test/data/multi_file/server3.log
 # Test 16: Average bytes per file
 query TI
 SELECT replace(log_file, '\', '/') as log_file, AVG(bytes)::INTEGER as avg_bytes
-FROM read_httpd_log('test/data/multi_file/server*.log')
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
 GROUP BY log_file
-ORDER BY avg_bytes DESC;
+ORDER BY replace(log_file, '\', '/');
 ----
-test/data/multi_file/server2.log	6144
 test/data/multi_file/server1.log	1536
+test/data/multi_file/server2.log	6144
 test/data/multi_file/server3.log	768
 
 # Test 17: Unique paths across all files
 query I
 SELECT COUNT(DISTINCT path)
-FROM read_httpd_log('test/data/multi_file/server*.log');
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common');
 ----
 6
 
 # Test 18: Top clients across all files
 query I
-SELECT COUNT(DISTINCT client_ip) as total_clients
-FROM read_httpd_log('test/data/multi_file/server*.log');
+SELECT COUNT(DISTINCT client_host) as total_clients
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common');
 ----
 6
 
@@ -165,7 +165,7 @@ FROM read_httpd_log('test/data/multi_file/server*.log');
 statement error
 SELECT * FROM read_httpd_log('test/data/nonexistent*.log');
 ----
-Binder Error: No files found matching pattern: test/data/nonexistent*.log
+IO Error: No files found that match the pattern "test/data/nonexistent*.log"
 
 # Test 20: Combine format_type with glob pattern
 query I
@@ -177,7 +177,7 @@ FROM read_httpd_log('test/data/combined/*.log', format_type='combined');
 # Test 21: Cross-file WHERE clause filtering
 query I
 SELECT COUNT(*)
-FROM read_httpd_log('test/data/multi_file/server*.log')
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
 WHERE status >= 200 AND status < 300;
 ----
 6
@@ -185,30 +185,30 @@ WHERE status >= 200 AND status < 300;
 # Test 22: File count with single character wildcard
 query I
 SELECT COUNT(DISTINCT log_file)
-FROM read_httpd_log('test/data/multi_file/server?.log');
+FROM read_httpd_log('test/data/multi_file/server?.log', format_type='common');
 ----
 3
 
-# Test 23: Combined multi-file and raw mode with errors
+# Test 23: Combined multi-file and raw mode with errors (common format)
 query II
 SELECT
     COUNT(*) FILTER (WHERE parse_error = false) as valid,
     COUNT(*) FILTER (WHERE parse_error = true) as invalid
-FROM read_httpd_log('test/data/**/*.log', raw=true);
+FROM read_httpd_log('test/data/**/*.log', format_type='common', raw=true);
 ----
-41	86
+44	92
 
 # Test 24: Timestamp range across multiple files
 query I
 SELECT COUNT(DISTINCT timestamp::DATE)
-FROM read_httpd_log('test/data/multi_file/server*.log');
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common');
 ----
 2
 
 # Test 25: Protocol distribution across files
 query TI
 SELECT protocol, COUNT(*) as count
-FROM read_httpd_log('test/data/multi_file/server*.log')
+FROM read_httpd_log('test/data/multi_file/server*.log', format_type='common')
 GROUP BY protocol
 ORDER BY protocol;
 ----

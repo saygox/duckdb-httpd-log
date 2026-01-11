@@ -17,7 +17,7 @@ query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log')
 )
-WHERE column_name IN ('client_ip', 'timestamp', 'method', 'path', 'status', 'bytes', 'log_file');
+WHERE column_name IN ('client_host', 'timestamp', 'method', 'path', 'status', 'bytes', 'log_file');
 ----
 7
 
@@ -43,9 +43,9 @@ query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', raw=true)
 )
-WHERE column_name IN ('timestamp_raw', 'parse_error', 'raw_line');
+WHERE column_name IN ('parse_error', 'raw_line');
 ----
-3
+2
 
 # Test 6: Verify raw mode adds BOOLEAN type for parse_error
 query TT
@@ -56,16 +56,7 @@ WHERE column_name = 'parse_error';
 ----
 parse_error	BOOLEAN
 
-# Test 7: Verify timestamp_raw is VARCHAR in raw mode
-query TT
-SELECT column_name, column_type FROM (
-    DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', raw=true)
-)
-WHERE column_name = 'timestamp_raw';
-----
-timestamp_raw	VARCHAR
-
-# Test 8: Verify raw_line is VARCHAR in raw mode
+# Test 7: Verify raw_line is VARCHAR in raw mode
 query TT
 SELECT column_name, column_type FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', raw=true)
@@ -74,7 +65,7 @@ WHERE column_name = 'raw_line';
 ----
 raw_line	VARCHAR
 
-# Test 9: Format type parameter doesn't affect schema structure
+# Test 8: Format type parameter doesn't affect schema structure
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', format_type='common')
@@ -82,7 +73,7 @@ SELECT COUNT(*) FROM (
 ----
 11
 
-# Test 10: Combined format with raw mode has 16 columns (11 base + 2 combined + 3 raw)
+# Test 9: Combined format with raw mode has 16 columns (11 base + 2 combined + 3 raw)
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/combined/combined.log', format_type='combined', raw=true)
@@ -90,7 +81,7 @@ SELECT COUNT(*) FROM (
 ----
 16
 
-# Test 11: Verify timestamp column always exists
+# Test 10: Verify timestamp column always exists
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log')
@@ -99,7 +90,7 @@ WHERE column_name = 'timestamp';
 ----
 1
 
-# Test 12: Verify log_file column always exists
+# Test 11: Verify log_file column always exists
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log')
@@ -108,20 +99,20 @@ WHERE column_name = 'log_file';
 ----
 1
 
-# Test 13: Verify diagnostic columns don't exist in default mode
+# Test 12: Verify diagnostic columns don't exist in default mode
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log')
 )
-WHERE column_name IN ('parse_error', 'raw_line', 'timestamp_raw');
+WHERE column_name IN ('parse_error', 'raw_line');
 ----
 0
 
-# Test 14: Verify all diagnostic columns exist in raw mode
+# Test 13: Verify all diagnostic columns exist in raw mode
 query I
 SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log('test/data/common/sample.log', raw=true)
 )
-WHERE column_name IN ('parse_error', 'raw_line', 'timestamp_raw');
+WHERE column_name IN ('parse_error', 'raw_line');
 ----
-3
+2

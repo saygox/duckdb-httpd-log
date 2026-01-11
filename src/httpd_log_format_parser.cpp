@@ -13,15 +13,23 @@ namespace duckdb {
 // Priority 0 = keeps base name when collision occurs, higher = gets suffix
 const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitions = {
     // Basic directives (no collision rules needed)
-    {"%h", "client_ip", LogicalTypeId::VARCHAR},
+    {"%h", "client_host", LogicalTypeId::VARCHAR},
     {"%a", "remote_ip", LogicalTypeId::VARCHAR}, // Client IP (mod_remoteip aware)
     {"%A", "local_ip", LogicalTypeId::VARCHAR},  // Server local IP
     {"%l", "ident", LogicalTypeId::VARCHAR},
     {"%u", "auth_user", LogicalTypeId::VARCHAR},
     {"%t", "timestamp", LogicalTypeId::TIMESTAMP},
-    {"%r", "request", LogicalTypeId::VARCHAR},
+    // Request line directives (original/final collision pair)
+    {"%>r", "request", LogicalTypeId::VARCHAR, "", 0},          // Final request gets base name
+    {"%r", "request", LogicalTypeId::VARCHAR, "_original", 1},  // Original request (default) gets suffix
+    {"%<r", "request", LogicalTypeId::VARCHAR, "_original", 1}, // Explicit original gets suffix
+
     {"%m", "method", LogicalTypeId::VARCHAR},
-    {"%U", "path", LogicalTypeId::VARCHAR},
+
+    // URL path directives (original/final collision pair)
+    {"%>U", "path", LogicalTypeId::VARCHAR, "", 0},          // Final path gets base name
+    {"%U", "path", LogicalTypeId::VARCHAR, "_original", 1},  // Original path (default) gets suffix
+    {"%<U", "path", LogicalTypeId::VARCHAR, "_original", 1}, // Explicit original gets suffix
     {"%q", "query_string", LogicalTypeId::VARCHAR},
     {"%H", "protocol", LogicalTypeId::VARCHAR},
     {"%p", "server_port", LogicalTypeId::INTEGER},
@@ -32,20 +40,27 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%P", "process_id", LogicalTypeId::INTEGER},
     // Duration directives - collision handled specially by GetDurationPriority()
     // When multiple duration directives exist, only highest precision is kept
-    {"%D", "duration", LogicalTypeId::INTERVAL}, // Microseconds
-    {"%T", "duration", LogicalTypeId::INTERVAL}, // Seconds (or with modifier: ms, us, s)
+    // Also supports original/final modifiers
+    {"%>D", "duration", LogicalTypeId::INTERVAL, "", 0},          // Final duration (us) gets base name
+    {"%D", "duration", LogicalTypeId::INTERVAL, "_original", 1},  // Original duration (us, default) gets suffix
+    {"%<D", "duration", LogicalTypeId::INTERVAL, "_original", 1}, // Explicit original duration (us)
+    {"%>T", "duration", LogicalTypeId::INTERVAL, "", 0},          // Final duration (s) gets base name
+    {"%T", "duration", LogicalTypeId::INTERVAL, "_original", 1},  // Original duration (s, default) gets suffix
+    {"%<T", "duration", LogicalTypeId::INTERVAL, "_original", 1}, // Explicit original duration (s)
 
-    // Status code directives (collision pair)
-    {"%>s", "status", LogicalTypeId::INTEGER, "", 0},         // Final status gets base name
-    {"%s", "status", LogicalTypeId::INTEGER, "_original", 1}, // Original status gets suffix
+    // Status code directives (original/final collision pair)
+    {"%>s", "status", LogicalTypeId::INTEGER, "", 0},          // Final status gets base name
+    {"%s", "status", LogicalTypeId::INTEGER, "_original", 1},  // Original status (default) gets suffix
+    {"%<s", "status", LogicalTypeId::INTEGER, "_original", 1}, // Explicit original status gets suffix
 
     // Server name directives (collision pair)
     {"%v", "server_name", LogicalTypeId::VARCHAR, "", 0},      // Canonical name gets base name
     {"%V", "server_name", LogicalTypeId::VARCHAR, "_used", 1}, // Used name gets suffix
 
-    // Bytes directives (collision pair)
-    {"%B", "bytes", LogicalTypeId::BIGINT, "", 0},     // Numeric bytes gets base name
-    {"%b", "bytes", LogicalTypeId::BIGINT, "_clf", 1}, // CLF format gets suffix
+    // Bytes directives (%b and %B are equivalent after "-" to 0 conversion)
+    // When both present, first occurrence is kept, second is skipped
+    {"%B", "bytes", LogicalTypeId::BIGINT},
+    {"%b", "bytes", LogicalTypeId::BIGINT},
 
     // mod_logio byte counting directives (separate from %b/%B)
     {"%I", "bytes_received", LogicalTypeId::BIGINT},
@@ -57,18 +72,19 @@ const std::vector<DirectiveDefinition> HttpdLogFormatParser::directive_definitio
     {"%L", "request_log_id", LogicalTypeId::VARCHAR},
     {"%R", "handler", LogicalTypeId::VARCHAR},
 
-    // Header directives (dynamic column name, collision with each other)
-    {"%i", "", LogicalTypeId::VARCHAR, "_in", 1},  // Request headers
-    {"%o", "", LogicalTypeId::VARCHAR, "_out", 1}, // Response headers
+    // Header directives (dynamic column name, unique priorities for collision resolution)
+    // Priority 0 = final (e.g., %>s), Priority 1 = original (e.g., %s), Priority 2+ = dynamic directives
+    {"%i", "", LogicalTypeId::VARCHAR, "_in", 2},  // Request headers
+    {"%o", "", LogicalTypeId::VARCHAR, "_out", 3}, // Response headers
 
     // Cookie, Environment, Note directives (dynamic column name)
-    {"%C", "", LogicalTypeId::VARCHAR, "_cookie", 2},
-    {"%e", "", LogicalTypeId::VARCHAR, "_env", 2},
-    {"%n", "", LogicalTypeId::VARCHAR, "_note", 2},
+    {"%C", "", LogicalTypeId::VARCHAR, "_cookie", 4},
+    {"%e", "", LogicalTypeId::VARCHAR, "_env", 5},
+    {"%n", "", LogicalTypeId::VARCHAR, "_note", 6},
 
     // Trailer directives (dynamic column name)
-    {"%^ti", "", LogicalTypeId::VARCHAR, "_trail_in", 2},
-    {"%^to", "", LogicalTypeId::VARCHAR, "_trail_out", 2},
+    {"%^ti", "", LogicalTypeId::VARCHAR, "_trail_in", 7},
+    {"%^to", "", LogicalTypeId::VARCHAR, "_trail_out", 8},
 };
 
 // Typed header rules - maps header names to specific types with direction constraints
@@ -177,12 +193,15 @@ static string StrftimeToRegex(const string &format) {
 
 // Get priority for duration directives (lower = higher priority)
 // Returns -1 for non-duration directives
-// Priority order: %D (0) > %{us}T (1) > %{ms}T (2) > %T (3) > %{s}T (4)
+// Priority order: %D variants (0-1) > %{us}T (2) > %{ms}T (3) > %T (4) > %{s}T (5)
+// Final (>) variants get same precision priority but win in collision resolution via suffix
 static int GetDurationPriority(const string &directive, const string &modifier) {
-	if (directive == "%D") {
-		return 0; // microseconds (highest priority)
+	// Handle %D variants (microseconds - highest precision)
+	if (directive == "%D" || directive == "%>D" || directive == "%<D") {
+		return 0;
 	}
-	if (directive == "%T") {
+	// Handle %T variants
+	if (directive == "%T" || directive == "%>T" || directive == "%<T") {
 		if (modifier == "us") {
 			return 1; // microseconds
 		}
@@ -268,9 +287,16 @@ string HttpdLogFormatParser::GetColumnName(const string &directive, const string
 		return "peer_host";
 	}
 
-	// Handle %{UNIT}T - time taken with unit (ms, us, s)
+	// Handle %{UNIT}T variants - time taken with unit (ms, us, s)
 	// All variants produce "duration" column name (same as %D and %T)
-	if (directive == "%T" && (modifier == "ms" || modifier == "us" || modifier == "s")) {
+	// For < > modifiers, the directive definition handles the suffix
+	if ((directive == "%T" || directive == "%>T" || directive == "%<T") &&
+	    (modifier == "ms" || modifier == "us" || modifier == "s")) {
+		// Look up directive definition for proper suffix handling
+		const DirectiveDefinition *def = GetDirectiveDefinition(directive);
+		if (def) {
+			return def->column_name;
+		}
 		return "duration";
 	}
 
@@ -330,9 +356,10 @@ LogicalType HttpdLogFormatParser::GetDataType(const string &directive, const str
 		return LogicalType::VARCHAR;
 	}
 
-	// Handle %{UNIT}T - time taken with unit (ms, us, s)
+	// Handle %{UNIT}T variants - time taken with unit (ms, us, s)
 	// All variants return INTERVAL type
-	if (directive == "%T" && (modifier == "ms" || modifier == "us" || modifier == "s")) {
+	if ((directive == "%T" || directive == "%>T" || directive == "%<T") &&
+	    (modifier == "ms" || modifier == "us" || modifier == "s")) {
 		return LogicalType::INTERVAL;
 	}
 
@@ -384,12 +411,28 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 			string modifier;
 			size_t start_pos = pos;
 
+			// Skip optional status code condition: %400,501{...} or %!200,304{...}
+			// These conditions filter logging by HTTP status code, but we ignore them
+			// and just parse the directive itself
+			size_t directive_start = pos + 1;
+			if (directive_start < format_str.length()) {
+				// Skip '!' if present (negation)
+				if (format_str[directive_start] == '!') {
+					directive_start++;
+				}
+				// Skip digits and commas (status codes like 400,501)
+				while (directive_start < format_str.length() &&
+				       (isdigit(format_str[directive_start]) || format_str[directive_start] == ',')) {
+					directive_start++;
+				}
+			}
+
 			// Check for modifiers like %{...}i, %{...}o, %{...}^ti, %{...}^to, %{...}t
-			if (pos + 1 < format_str.length() && format_str[pos + 1] == '{') {
+			if (directive_start < format_str.length() && format_str[directive_start] == '{') {
 				// Find the closing }
-				size_t close_pos = format_str.find('}', pos + 2);
+				size_t close_pos = format_str.find('}', directive_start + 1);
 				if (close_pos != string::npos && close_pos + 1 < format_str.length()) {
-					modifier = format_str.substr(pos + 2, close_pos - pos - 2);
+					modifier = format_str.substr(directive_start + 1, close_pos - directive_start - 1);
 					// Check for ^ti or ^to trailer directives
 					if (format_str[close_pos + 1] == '^' && close_pos + 3 < format_str.length()) {
 						directive = "%" + format_str.substr(close_pos + 1, 3); // %^ti or %^to
@@ -406,14 +449,21 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 					continue;
 				}
 			} else {
-				// Standard directive (1-2 characters after %)
-				directive = format_str.substr(pos, 2);
+				// Standard directive (1-2 characters after %) or with status condition
+				// For status conditions like %200s, directive_start points past the condition
+				size_t dir_start = (directive_start == pos + 1) ? pos : directive_start;
 
-				// Check for %>s or other multi-char directives
-				if (pos + 2 < format_str.length() && format_str[pos + 1] == '>') {
-					directive = format_str.substr(pos, 3);
-					pos += 3;
+				// Check for %<X or %>X (original/final modifiers)
+				if (dir_start + 1 < format_str.length() && format_str[dir_start] == '%' &&
+				    (format_str[dir_start + 1] == '>' || format_str[dir_start + 1] == '<')) {
+					directive = format_str.substr(dir_start, 3); // e.g., %>s, %<s, %>U, %<U
+					pos = dir_start + 3;
+				} else if (directive_start > pos + 1) {
+					// Status condition present, directive starts at directive_start
+					directive = "%" + string(1, format_str[directive_start]);
+					pos = directive_start + 1;
 				} else {
+					directive = format_str.substr(pos, 2);
 					pos += 2;
 				}
 			}
@@ -441,12 +491,15 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 				} else if (modifier == "usec_frac") {
 					field.timestamp_type = TimestampFormatType::FRAC_USEC;
 				} else {
-					// Strip begin: or end: prefix if present (handled as begin: for now)
+					// Strip begin: or end: prefix if present
+					// end: timestamps are final (get base name), begin: or no prefix are original
 					string strftime_fmt = modifier;
 					if (strftime_fmt.substr(0, 6) == "begin:") {
 						strftime_fmt = strftime_fmt.substr(6);
+						field.is_end_timestamp = false;
 					} else if (strftime_fmt.substr(0, 4) == "end:") {
 						strftime_fmt = strftime_fmt.substr(4);
+						field.is_end_timestamp = true;
 					}
 					field.timestamp_type = TimestampFormatType::STRFTIME;
 					field.strftime_format = strftime_fmt;
@@ -615,19 +668,14 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 			continue;
 		}
 
-		// Special handling for %t (timestamp) - add timestamp and optionally timestamp_raw
+		// Special handling for %t (timestamp)
 		if (field.directive == "%t") {
-			names.push_back("timestamp");
+			names.push_back(field.column_name);
 			return_types.push_back(LogicalType::TIMESTAMP);
-			// timestamp_raw is only included in raw mode
-			if (include_raw_columns) {
-				names.push_back("timestamp_raw");
-				return_types.push_back(LogicalType::VARCHAR);
-			}
 		}
-		// Special handling for %r (request) - decompose into method, path, query_string, protocol
+		// Special handling for %r variants (request) - decompose into method, path, query_string, protocol
 		// Skip sub-columns that are overridden by individual directives (%m, %U, %q, %H)
-		else if (field.directive == "%r") {
+		else if (field.directive == "%r" || field.directive == "%>r" || field.directive == "%<r") {
 			if (!field.skip_method) {
 				names.push_back("method");
 				return_types.push_back(LogicalType::VARCHAR);
@@ -656,8 +704,11 @@ void HttpdLogFormatParser::GenerateSchema(const ParsedFormat &parsed_format, vec
 	names.push_back("log_file");
 	return_types.push_back(LogicalType::VARCHAR);
 
-	// parse_error and raw_line are only included in raw mode
+	// line_number, parse_error and raw_line are only included in raw mode
 	if (include_raw_columns) {
+		names.push_back("line_number");
+		return_types.push_back(LogicalType::BIGINT);
+
 		names.push_back("parse_error");
 		return_types.push_back(LogicalType::BOOLEAN);
 
@@ -748,6 +799,11 @@ bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, s
 vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const ParsedFormat &parsed_format) {
 	vector<string> result;
 
+	// If no compiled regex (unknown format), return empty to indicate parse error
+	if (!parsed_format.compiled_regex) {
+		return result;
+	}
+
 	// Use the pre-compiled RE2 for performance
 	int num_groups = parsed_format.compiled_regex->NumberOfCapturingGroups();
 
@@ -779,20 +835,30 @@ vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const Pars
 	return result;
 }
 
+// Helper to check if a directive is a request line variant (%r, %>r, %<r)
+static bool IsRequestLineDirective(const string &dir) {
+	return dir == "%r" || dir == "%>r" || dir == "%<r";
+}
+
+// Helper to check if a directive is a path variant (%U, %>U, %<U)
+static bool IsPathDirective(const string &dir) {
+	return dir == "%U" || dir == "%>U" || dir == "%<U";
+}
+
 void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_format) {
-	// Step 0: Handle %r vs individual directive collisions
-	// When %m, %U, %q, or %H are present alongside %r, skip the corresponding %r sub-column
+	// Step 0: Handle %r variants vs individual directive collisions
+	// When %m, %U variants, %q, or %H are present alongside %r variants, skip the corresponding sub-column
 	// Individual directives take priority over %r decomposition
 	bool has_m = false, has_U = false, has_q = false, has_H = false;
 	idx_t r_field_idx = DConstants::INVALID_INDEX;
 
 	for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
 		const string &dir = parsed_format.fields[i].directive;
-		if (dir == "%r") {
+		if (IsRequestLineDirective(dir)) {
 			r_field_idx = i;
 		} else if (dir == "%m") {
 			has_m = true;
-		} else if (dir == "%U") {
+		} else if (IsPathDirective(dir)) {
 			has_U = true;
 		} else if (dir == "%q") {
 			has_q = true;
@@ -801,7 +867,7 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		}
 	}
 
-	// If %r is present with individual directives, set skip flags
+	// If %r variant is present with individual directives, set skip flags
 	if (r_field_idx != DConstants::INVALID_INDEX) {
 		auto &r_field = parsed_format.fields[r_field_idx];
 		if (has_m) {
@@ -820,19 +886,29 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 
 	// Step 0.5: Group consecutive %t directives into timestamp groups
 	// Multiple %t/%{format}t can be combined into a single timestamp column
+	// begin: and end: timestamps are kept in separate groups
 	{
 		int current_group_id = 0;
 		bool in_timestamp_group = false;
-		idx_t first_ts_in_group = DConstants::INVALID_INDEX;
+		bool current_group_is_end = false; // Track if current group is for end: timestamps
 
 		for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
 			auto &field = parsed_format.fields[i];
 
 			if (field.directive == "%t") {
-				if (!in_timestamp_group) {
+				// Check if we need to start a new group due to begin/end mismatch
+				bool should_start_new_group =
+				    !in_timestamp_group || (in_timestamp_group && field.is_end_timestamp != current_group_is_end);
+
+				if (should_start_new_group) {
+					// End previous group if exists
+					if (in_timestamp_group) {
+						current_group_id++;
+					}
+
 					// Start new group
 					in_timestamp_group = true;
-					first_ts_in_group = i;
+					current_group_is_end = field.is_end_timestamp;
 					field.timestamp_group_id = current_group_id;
 
 					// Create new timestamp group
@@ -898,6 +974,33 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		}
 	}
 
+	// Step 0.6: Rename timestamp columns for begin/end collision resolution
+	// When both begin: and end: timestamps exist, end: gets "timestamp", begin: gets "timestamp_original"
+	{
+		bool has_end_timestamp = false;
+		bool has_begin_timestamp = false;
+
+		// Check what types of timestamp groups we have
+		for (const auto &field : parsed_format.fields) {
+			if (field.directive == "%t" && !field.should_skip) {
+				if (field.is_end_timestamp) {
+					has_end_timestamp = true;
+				} else {
+					has_begin_timestamp = true;
+				}
+			}
+		}
+
+		// If both exist, rename begin: timestamps to timestamp_original
+		if (has_end_timestamp && has_begin_timestamp) {
+			for (auto &field : parsed_format.fields) {
+				if (field.directive == "%t" && !field.should_skip && !field.is_end_timestamp) {
+					field.column_name = "timestamp_original";
+				}
+			}
+		}
+	}
+
 	// Step 1: Build collision map - group field indices by column name
 	std::unordered_map<string, vector<idx_t>> collision_map;
 	for (idx_t i = 0; i < parsed_format.fields.size(); i++) {
@@ -914,8 +1017,8 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		}
 
 		// Special case: Duration directives - keep only highest precision, skip others
-		// This handles %D, %T, %{ms}T, %{us}T, %{s}T collisions
-		if (column_name == "duration") {
+		// This handles %D, %T, %{ms}T, %{us}T, %{s}T and their < > variants
+		if (column_name == "duration" || column_name == "duration_original") {
 			// Find field with lowest priority number (= highest precision)
 			idx_t best_idx = field_indices[0];
 			int best_priority =
@@ -1011,6 +1114,17 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 			continue;
 		}
 
+		// Special case: Bytes - %b and %B are equivalent (both produce "bytes")
+		// "-" in %b is converted to 0, making them identical in value
+		// Keep first occurrence, skip the rest
+		if (column_name == "bytes") {
+			// Mark all but the first as should_skip
+			for (size_t i = 1; i < field_indices.size(); i++) {
+				parsed_format.fields[field_indices[i]].should_skip = true;
+			}
+			continue;
+		}
+
 		// Separate fields by directive type to determine collision type
 		std::unordered_map<string, vector<idx_t>> by_directive;
 		for (idx_t idx : field_indices) {
@@ -1052,35 +1166,22 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 		std::sort(fields_with_defs.begin(), fields_with_defs.end(),
 		          [](const FieldWithDef &a, const FieldWithDef &b) { return a.priority < b.priority; });
 
-		// Check if this is a header collision (only %i and/or %o involved)
-		bool has_i = by_directive.count("%i") > 0;
-		bool has_o = by_directive.count("%o") > 0;
-		bool is_pure_header_collision = by_directive.size() == 2 && has_i && has_o;
-
-		// For header collisions (%{X}i + %{X}o), both get suffixes
-		// For other collisions, use priority-based resolution
-		if (is_pure_header_collision) {
-			// Both header types present - apply suffixes to both
-			for (const auto &fwd : fields_with_defs) {
-				auto &field = parsed_format.fields[fwd.field_idx];
-				if (fwd.def) {
-					field.column_name = column_name + fwd.def->collision_suffix;
-				}
-			}
-		} else {
-			// Mixed collision or standard directive pairs
-			// Priority 0 gets base name (or its own suffix if defined)
-			// Others get their suffixes
-			for (const auto &fwd : fields_with_defs) {
-				auto &field = parsed_format.fields[fwd.field_idx];
-				if (fwd.def) {
-					if (fwd.def->collision_suffix.empty()) {
-						// Priority 0 with empty suffix keeps base name
-						field.column_name = column_name;
-					} else {
-						field.column_name = column_name + fwd.def->collision_suffix;
-					}
-				}
+		// Simple priority-based resolution
+		// Lowest priority keeps base name, others get their defined suffixes
+		// (All priorities are unique, so there's always a clear winner)
+		bool first = true;
+		for (const auto &fwd : fields_with_defs) {
+			auto &field = parsed_format.fields[fwd.field_idx];
+			if (first) {
+				// Lowest priority keeps base name
+				field.column_name = column_name;
+				first = false;
+			} else if (fwd.def && !fwd.def->collision_suffix.empty()) {
+				// Others get their defined suffix
+				field.column_name = column_name + fwd.def->collision_suffix;
+			} else {
+				// Fallback: append priority as suffix
+				field.column_name = column_name + "_" + std::to_string(fwd.priority);
 			}
 		}
 
@@ -1100,6 +1201,60 @@ void HttpdLogFormatParser::ResolveColumnNameCollisions(ParsedFormat &parsed_form
 	// Note: Fields are NOT removed (maintains sync with regex generation)
 	// should_skip flag is used in GenerateRegexPattern(), GenerateSchema(),
 	// and table function for fields that should be captured but not output
+}
+
+string HttpdLogFormatParser::DetectFormat(const vector<string> &sample_lines, ParsedFormat &parsed_format) {
+	if (sample_lines.empty()) {
+		// No sample lines - return unknown with raw-only schema
+		parsed_format = ParsedFormat("");
+		return "unknown";
+	}
+
+	// Define format strings for common and combined
+	static const string combined_format = "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"";
+	static const string common_format = "%h %l %u %t \"%r\" %>s %b";
+
+	// Try combined first (it's a superset of common, so if combined matches, use it)
+	ParsedFormat combined_parsed = ParseFormatString(combined_format);
+	int combined_matches = 0;
+	for (const auto &line : sample_lines) {
+		if (line.empty()) {
+			continue;
+		}
+		vector<string> values = ParseLogLine(line, combined_parsed);
+		if (!values.empty()) {
+			combined_matches++;
+		}
+	}
+
+	// If most lines match combined format, use it
+	if (combined_matches > 0 && combined_matches >= static_cast<int>(sample_lines.size()) / 2) {
+		parsed_format = std::move(combined_parsed);
+		return "combined";
+	}
+
+	// Try common format
+	ParsedFormat common_parsed = ParseFormatString(common_format);
+	int common_matches = 0;
+	for (const auto &line : sample_lines) {
+		if (line.empty()) {
+			continue;
+		}
+		vector<string> values = ParseLogLine(line, common_parsed);
+		if (!values.empty()) {
+			common_matches++;
+		}
+	}
+
+	// If most lines match common format, use it
+	if (common_matches > 0 && common_matches >= static_cast<int>(sample_lines.size()) / 2) {
+		parsed_format = std::move(common_parsed);
+		return "common";
+	}
+
+	// Neither format matched - return unknown with empty parsed format
+	parsed_format = ParsedFormat("");
+	return "unknown";
 }
 
 } // namespace duckdb

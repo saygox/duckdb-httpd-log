@@ -94,7 +94,7 @@ ORDER BY bytes_transferred;
 # Test Group 3: All columns together
 # =============================================================================
 
-# Test 7: All three columns present - 4 columns total (client_ip + 3 byte columns + log_file)
+# Test 7: All three columns present - 4 columns total (client_host + 3 byte columns + log_file)
 query I
 SELECT COUNT(*)
 FROM (
@@ -108,7 +108,7 @@ FROM (
 
 # Test 8: Extract all values from first row
 query TIII
-SELECT client_ip, bytes_received, bytes_sent, bytes_transferred
+SELECT client_host, bytes_received, bytes_sent, bytes_transferred
 FROM read_httpd_log(
     'test/data/directives/logio.log',
     format_str='%h %I %O %S'
@@ -124,7 +124,7 @@ LIMIT 1;
 
 # Test 9: %I alone
 query TI
-SELECT client_ip, bytes_received
+SELECT client_host, bytes_received
 FROM read_httpd_log(
     'test/data/directives/logio.log',
     format_str='%h %I %O %S'
@@ -135,7 +135,7 @@ WHERE bytes_received = 512;
 
 # Test 10: %O alone
 query TI
-SELECT client_ip, bytes_sent
+SELECT client_host, bytes_sent
 FROM read_httpd_log(
     'test/data/directives/logio.log',
     format_str='%h %I %O %S'
@@ -146,7 +146,7 @@ WHERE bytes_sent = 4096;
 
 # Test 11: %S alone
 query TI
-SELECT client_ip, bytes_transferred
+SELECT client_host, bytes_transferred
 FROM read_httpd_log(
     'test/data/directives/logio.log',
     format_str='%h %I %O %S'

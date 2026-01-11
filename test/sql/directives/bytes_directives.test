@@ -1,5 +1,5 @@
 # name: test/sql/directives/bytes_directives.test
-# description: Tests for %b and %B directive handling (distinct columns when both present)
+# description: Tests for %b and %B directive handling (equivalent, first occurrence wins)
 # group: [directives]
 
 require httpd_log
@@ -28,21 +28,31 @@ WHERE column_name = 'bytes';
 ----
 1
 
-# Test 3: Both %b and %B present - %b becomes "bytes_clf", %B becomes "bytes"
-query II
-SELECT
-    COUNT(*) FILTER (WHERE column_name = 'bytes_clf') as has_bytes_clf,
-    COUNT(*) FILTER (WHERE column_name = 'bytes') as has_bytes
-FROM (
+# Test 3: Both %b and %B present - only one "bytes" column (first wins, second skipped)
+query I
+SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
         'test/data/directives/bytes_b_and_B.log',
         format_str='%h %l %u %t "%r" %>s %b %B'
     )
-);
+)
+WHERE column_name = 'bytes';
 ----
-1	1
+1
 
-# Test 4: Verify data parsing with %b only - "-" becomes 0
+# Test 4: Both %b and %B present - no bytes_clf column exists
+query I
+SELECT COUNT(*) FROM (
+    DESCRIBE SELECT * FROM read_httpd_log(
+        'test/data/directives/bytes_b_and_B.log',
+        format_str='%h %l %u %t "%r" %>s %b %B'
+    )
+)
+WHERE column_name = 'bytes_clf';
+----
+0
+
+# Test 5: Verify data parsing with %b only - "-" becomes 0
 query I
 SELECT COUNT(*)
 FROM read_httpd_log(
@@ -53,7 +63,7 @@ WHERE bytes = 0;
 ----
 2
 
-# Test 5: Verify data parsing with %B only - "0" is 0 (not NULL)
+# Test 6: Verify data parsing with %B only - "0" is 0 (not NULL)
 query I
 SELECT COUNT(*)
 FROM read_httpd_log(
@@ -64,65 +74,50 @@ WHERE bytes = 0;
 ----
 2
 
-# Test 6: Both %b and %B - verify same behavior (both convert "-" to 0)
-query III
-SELECT bytes_clf, bytes, client_ip
+# Test 7: Both %b and %B - first occurrence value is used
+query II
+SELECT bytes, client_host
 FROM read_httpd_log(
     'test/data/directives/bytes_b_and_B.log',
     format_str='%h %l %u %t "%r" %>s %b %B'
 )
-ORDER BY client_ip;
+ORDER BY client_host;
 ----
-2326	2326	192.168.1.1
-0	0	192.168.1.2
-0	0	192.168.1.3
+2326	192.168.1.1
+0	192.168.1.2
+0	192.168.1.3
 
-# Test 7: Verify %b with non-zero value
-query I
-SELECT bytes_clf
-FROM read_httpd_log(
-    'test/data/directives/bytes_b_and_B.log',
-    format_str='%h %l %u %t "%r" %>s %b %B'
-)
-WHERE client_ip = '192.168.1.1';
-----
-2326
-
-# Test 8: Verify %B always has numeric value (0 or actual bytes)
+# Test 8: Verify %b with non-zero value
 query I
 SELECT bytes
 FROM read_httpd_log(
     'test/data/directives/bytes_b_and_B.log',
     format_str='%h %l %u %t "%r" %>s %b %B'
 )
-WHERE client_ip = '192.168.1.2';
+WHERE client_host = '192.168.1.1';
 ----
-0
+2326
 
-# Test 9: Verify both columns have BIGINT type
-query II
-SELECT
-    COUNT(*) FILTER (WHERE column_name = 'bytes_clf' AND column_type = 'BIGINT') as clf_is_bigint,
-    COUNT(*) FILTER (WHERE column_name = 'bytes' AND column_type = 'BIGINT') as bytes_is_bigint
-FROM (
+# Test 9: Verify bytes has BIGINT type
+query I
+SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
         'test/data/directives/bytes_b_and_B.log',
         format_str='%h %l %u %t "%r" %>s %b %B'
     )
-);
+)
+WHERE column_name = 'bytes' AND column_type = 'BIGINT';
 ----
-1	1
+1
 
-# Test 10: Reverse order (%B then %b) - column names should be the same
-query II
-SELECT
-    COUNT(*) FILTER (WHERE column_name = 'bytes') as has_bytes,
-    COUNT(*) FILTER (WHERE column_name = 'bytes_clf') as has_bytes_clf
-FROM (
+# Test 10: Reverse order (%B then %b) - still only one bytes column
+query I
+SELECT COUNT(*) FROM (
     DESCRIBE SELECT * FROM read_httpd_log(
         'test/data/directives/bytes_b_and_B.log',
         format_str='%h %l %u %t "%r" %>s %B %b'
     )
-);
+)
+WHERE column_name = 'bytes';
 ----
-1	1
+1

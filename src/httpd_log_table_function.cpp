@@ -1,6 +1,8 @@
 #include "httpd_log_table_function.hpp"
+#include "httpd_log_multi_file_info.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/common/multi_file/multi_file_function.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 #include "duckdb/common/types/interval.hpp"
 #include "duckdb/common/types/date.hpp"
@@ -497,6 +499,7 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 		if (!has_line) {
 			state.buffered_reader.reset();
 			state.current_file_idx++;
+			state.current_line_number = 0; // Reset line number for new file
 
 			// Profiling: increment files processed counter
 			state.files_processed++;
@@ -510,6 +513,9 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 			state.buffered_reader = make_uniq<HttpdLogBufferedReader>(fs, state.current_file);
 			continue;
 		}
+
+		// Increment line number for every line read (including empty lines)
+		state.current_line_number++;
 
 		// Skip empty lines
 		if (line.empty()) {
@@ -585,7 +591,7 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						    StringVector::AddString(output.data[col_idx], "");
 						col_idx++;
 					}
-				} else if (field.directive == "%r") {
+				} else if (field.directive == "%r" || field.directive == "%>r" || field.directive == "%<r") {
 					value_idx++; // Advance past the request value
 					// method, path, query_string, protocol columns (respecting skip flags)
 					if (!field.skip_method) {
@@ -667,7 +673,7 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						}
 					}
 					// If group_id >= 0 but already processed, skip (handled by should_skip)
-				} else if (field.directive == "%r") {
+				} else if (field.directive == "%r" || field.directive == "%>r" || field.directive == "%<r") {
 					const string &value = parsed_values[value_idx];
 					value_idx++;
 					// Parse request line into method, path, query_string, protocol
@@ -685,8 +691,13 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 							col_idx++;
 						}
 						if (!field.skip_query_string) {
-							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-							    StringVector::AddString(output.data[col_idx], query_string);
+							// Empty query_string becomes NULL (no query parameters)
+							if (query_string.empty()) {
+								FlatVector::SetNull(output.data[col_idx], output_idx, true);
+							} else {
+								FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+								    StringVector::AddString(output.data[col_idx], query_string);
+							}
 							col_idx++;
 						}
 						if (!field.skip_protocol) {
@@ -706,8 +717,8 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 							col_idx++;
 						}
 						if (!field.skip_query_string) {
-							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-							    StringVector::AddString(output.data[col_idx], "");
+							// Parse failure: query_string is NULL
+							FlatVector::SetNull(output.data[col_idx], output_idx, true);
 							col_idx++;
 						}
 						if (!field.skip_protocol) {
@@ -737,14 +748,19 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
 							    StringVector::AddString(output.data[col_idx], status_str);
 						} else {
-							FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-							    StringVector::AddString(output.data[col_idx], value);
+							// Convert "-" to NULL for VARCHAR columns (CLF convention for "no data")
+							if (value == "-") {
+								FlatVector::SetNull(output.data[col_idx], output_idx, true);
+							} else {
+								FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+								    StringVector::AddString(output.data[col_idx], value);
+							}
 						}
 					} else if (field.type.id() == LogicalTypeId::INTEGER) {
 						try {
-							// Handle "-" as 0 for numeric fields
+							// Handle "-" as NULL for INTEGER fields
 							if (value == "-") {
-								FlatVector::GetData<int32_t>(output.data[col_idx])[output_idx] = 0;
+								FlatVector::SetNull(output.data[col_idx], output_idx, true);
 							} else {
 								int32_t int_val = std::stoi(value);
 								FlatVector::GetData<int32_t>(output.data[col_idx])[output_idx] = int_val;
@@ -754,9 +770,15 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						}
 					} else if (field.type.id() == LogicalTypeId::BIGINT) {
 						try {
-							// Handle "-" as 0 for numeric fields
+							// Handle "-": bytes columns get 0, others get NULL
 							if (value == "-") {
-								FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = 0;
+								static const std::unordered_set<string> bytes_columns = {
+								    "bytes", "bytes_received", "bytes_sent", "bytes_transferred"};
+								if (bytes_columns.count(field.column_name)) {
+									FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = 0;
+								} else {
+									FlatVector::SetNull(output.data[col_idx], output_idx, true);
+								}
 							} else {
 								int64_t int_val = std::stoll(value);
 								FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] = int_val;
@@ -766,9 +788,9 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 						}
 					} else if (field.type.id() == LogicalTypeId::INTERVAL) {
 						try {
-							// Handle "-" as 0 for duration fields
+							// Handle "-" as NULL for duration fields (status condition may cause "-")
 							if (value == "-") {
-								FlatVector::GetData<interval_t>(output.data[col_idx])[output_idx] = {0, 0, 0};
+								FlatVector::SetNull(output.data[col_idx], output_idx, true);
 							} else {
 								int64_t int_val = std::stoll(value);
 								// Convert to microseconds based on directive/modifier:
@@ -811,19 +833,20 @@ void HttpdLogTableFunction::Function(ClientContext &context, TableFunctionInput 
 		    StringVector::AddString(output.data[col_idx], state.current_file);
 		col_idx++;
 
-		// parse_error and raw_line (only in raw mode)
+		// line_number, parse_error and raw_line (only in raw mode)
 		if (bind_data.raw_mode) {
+			// line_number
+			FlatVector::GetData<int64_t>(output.data[col_idx])[output_idx] =
+			    static_cast<int64_t>(state.current_line_number);
+			col_idx++;
+
 			// parse_error
 			FlatVector::GetData<bool>(output.data[col_idx])[output_idx] = parse_error;
 			col_idx++;
 
-			// raw_line (only set if parse_error is true)
-			if (parse_error) {
-				FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
-				    StringVector::AddString(output.data[col_idx], line);
-			} else {
-				FlatVector::SetNull(output.data[col_idx], output_idx, true);
-			}
+			// raw_line (always populated in raw mode)
+			FlatVector::GetData<string_t>(output.data[col_idx])[output_idx] =
+			    StringVector::AddString(output.data[col_idx], line);
 		}
 
 		output_idx++;
@@ -868,17 +891,15 @@ InsertionOrderPreservingMap<string> HttpdLogTableFunction::DynamicToString(Table
 }
 
 void HttpdLogTableFunction::RegisterFunction(ExtensionLoader &loader) {
-	// Create table function with optional format_type, format_str, and raw parameters
-	TableFunction read_httpd_log("read_httpd_log", {LogicalType::VARCHAR}, Function, Bind, Init);
-	read_httpd_log.named_parameters["format_type"] = LogicalType::VARCHAR;
-	read_httpd_log.named_parameters["format_str"] = LogicalType::VARCHAR;
-	read_httpd_log.named_parameters["raw"] = LogicalType::BOOLEAN;
-
-	// Register profiling callback for EXPLAIN ANALYZE
-	read_httpd_log.dynamic_to_string = DynamicToString;
+	// Use MultiFileFunction for proper file handling (like read_file pattern)
+	MultiFileFunction<HttpdLogMultiFileInfo> table_function("read_httpd_log");
+	table_function.named_parameters["format_type"] = LogicalType::VARCHAR;
+	table_function.named_parameters["format_str"] = LogicalType::VARCHAR;
+	table_function.named_parameters["conf"] = LogicalType::VARCHAR;
+	table_function.named_parameters["raw"] = LogicalType::BOOLEAN;
 
 	// Register the function
-	loader.RegisterFunction(read_httpd_log);
+	loader.RegisterFunction(static_cast<TableFunction>(table_function));
 }
 
 } // namespace duckdb

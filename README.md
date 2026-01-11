@@ -1,46 +1,94 @@
 # HttpdLog Extension for DuckDB
 
-This DuckDB extension provides functionality to read and parse Apache HTTP server log files directly in SQL queries. It supports both Common Log Format (CLF) and Combined Log Format, with extensibility for custom formats via Apache LogFormat strings.
-
-This repository is based on https://github.com/duckdb/extension-template.
+A DuckDB extension for reading and parsing Apache HTTP server log files directly in SQL queries.
 
 ## Features
 
-- **Read Apache log files** using the `read_httpd_log()` table function
-- **Support for standard formats**:
-  - Common Log Format (CLF): `%h %l %u %t "%r" %>s %b`
-  - Combined Log Format: `%h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-agent}i"`
-- **Custom format support** via `format_str` parameter with Apache LogFormat syntax
-- **Dynamic schema generation** - columns are automatically inferred from format strings
-- **Typed HTTP headers** - automatic type detection for numeric headers (Content-Length, Age, Max-Forwards)
-- **Error handling** - malformed log lines are captured with `parse_error` flag
-- **Glob pattern support** - read multiple log files with wildcards
+- Read Apache log files using the `read_httpd_log()` table function
+- Support for Common Log Format and Combined Log Format
+- Custom format support via Apache LogFormat syntax
+- Read format definitions from httpd.conf with the `read_httpd_conf()` function
+- Glob pattern support for reading multiple log files
+
+## Installation
+
+Currently, binaries are available from [GitHub Releases](https://github.com/itosaygo/httpd_log/releases).
+
+```bash
+# Download the binary for your platform and extract it
+duckdb -unsigned
+```
+
+```sql
+INSTALL './httpd_log.duckdb_extension';
+LOAD httpd_log;
+```
+
+> **Note:** Since this extension is not yet signed, you need to launch DuckDB with `allow_unsigned_extensions` enabled (`-unsigned` flag for CLI).
 
 ## Usage
 
 ### Basic Usage
 
 ```sql
--- Read log file with default common format
-SELECT * FROM read_httpd_log('access.log');
-
--- Read with explicit format type
-SELECT * FROM read_httpd_log('access.log', format_type='combined');
-
--- Read multiple files with glob pattern
-SELECT * FROM read_httpd_log('logs/*.log', format_type='common');
+SELECT client_ip, method, path, status, bytes
+FROM read_httpd_log('access.log')
+LIMIT 5;
 ```
 
-### Using Custom Format Strings
+```
+┌─────────────┬────────┬───────────────┬────────┬───────┐
+│  client_ip  │ method │     path      │ status │ bytes │
+│   varchar   │ varchar│    varchar    │ int32  │ int64 │
+├─────────────┼────────┼───────────────┼────────┼───────┤
+│ 192.168.1.1 │ GET    │ /index.html   │    200 │  2326 │
+│ 192.168.1.2 │ POST   │ /api/login    │    201 │   150 │
+│ 192.168.1.3 │ GET    │ /style.css    │    304 │     0 │
+│ 192.168.1.4 │ GET    │ /favicon.ico  │    404 │   209 │
+│ 192.168.1.5 │ GET    │ /api/users    │    200 │  1024 │
+└─────────────┴────────┴───────────────┴────────┴───────┘
+```
+
+### Read Multiple Files
+
+```sql
+SELECT COUNT(*), log_file
+FROM read_httpd_log('logs/*.log')
+GROUP BY log_file;
+```
+
+```
+┌──────────────┬──────────────────────┐
+│ count_star() │       log_file       │
+│    int64     │       varchar        │
+├──────────────┼──────────────────────┤
+│         1250 │ logs/access.log      │
+│          890 │ logs/access.log.1    │
+│          456 │ logs/access.log.2    │
+└──────────────┴──────────────────────┘
+```
+
+### Custom Format Strings
 
 ```sql
 -- Use Apache LogFormat string directly
 SELECT * FROM read_httpd_log('access.log',
     format_str='%h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-agent}i"');
 
--- Custom format with additional fields
-SELECT * FROM read_httpd_log('access.log',
+-- Custom format with request duration
+SELECT client_ip, path, status, duration
+FROM read_httpd_log('access.log',
     format_str='%h %l %u %t "%r" %>s %b %D');
+```
+
+### Using httpd.conf
+
+```sql
+-- Auto-detect format from httpd.conf
+SELECT * FROM read_httpd_log('access.log', conf='/etc/httpd/conf/httpd.conf');
+
+-- Use specific format nickname from httpd.conf
+SELECT * FROM read_httpd_log('access.log', conf='/etc/httpd/conf/httpd.conf', format_type='combined');
 ```
 
 ### Example Queries
@@ -48,357 +96,105 @@ SELECT * FROM read_httpd_log('access.log',
 ```sql
 -- Count requests by status code
 SELECT status, COUNT(*) as count
-FROM read_httpd_log('access.log', format_type='common')
-WHERE parse_error = false
+FROM read_httpd_log('access.log')
 GROUP BY status
 ORDER BY count DESC;
-
--- Analyze user agents (combined format)
-SELECT user_agent, COUNT(*) as requests
-FROM read_httpd_log('access.log', format_type='combined')
-WHERE parse_error = false
-GROUP BY user_agent
-ORDER BY requests DESC
-LIMIT 10;
-
--- Find errors with their details
-SELECT timestamp, client_ip, method, path, status
-FROM read_httpd_log('logs/*.log', format_type='common')
-WHERE status >= 400 AND parse_error = false
-ORDER BY timestamp DESC;
 ```
 
-### Typed HTTP Headers
-
-The extension automatically detects and types specific numeric HTTP headers for better performance:
-
-- **`Content-Length`**: BIGINT (request/response body size in bytes)
-- **`Age`**: INTEGER (cache age in seconds, response only)
-- **`Max-Forwards`**: INTEGER (proxy hop limit, request only)
-
-All other headers remain VARCHAR. This enables numeric operations like filtering, aggregations, and sorting:
+```
+┌────────┬───────┐
+│ status │ count │
+│ int32  │ int64 │
+├────────┼───────┤
+│    200 │  8542 │
+│    304 │  1203 │
+│    404 │   156 │
+│    500 │    23 │
+└────────┴───────┘
+```
 
 ```sql
--- Filter by response size
-SELECT * FROM read_httpd_log(
-    'access.log',
-    format_str='%h %t "%r" %>s %{Content-Length}o'
-)
-WHERE content_length > 1000000;
-
--- Aggregate cache statistics
-SELECT AVG(content_length), MAX(age)
-FROM read_httpd_log(
-    'access.log',
-    format_str='%h %t "%r" %>s %{Content-Length}o %{Age}o'
-);
+-- Top 5 requested paths
+SELECT path, COUNT(*) as hits
+FROM read_httpd_log('access.log')
+GROUP BY path
+ORDER BY hits DESC
+LIMIT 5;
 ```
 
-See [Schema Documentation](docs/schema.md#typed-http-headers) for more details.
+```
+┌─────────────────────┬───────┐
+│        path         │ hits  │
+│       varchar       │ int64 │
+├─────────────────────┼───────┤
+│ /api/health         │  2341 │
+│ /index.html         │  1892 │
+│ /static/app.js      │  1567 │
+│ /static/style.css   │  1234 │
+│ /api/users          │   987 │
+└─────────────────────┴───────┘
+```
+
+```sql
+-- Top user agents (combined format)
+SELECT user_agent, COUNT(*) as requests
+FROM read_httpd_log('access.log', format_type='combined')
+GROUP BY user_agent
+ORDER BY requests DESC
+LIMIT 3;
+```
+
+```
+┌─────────────────────────────────────────────────┬──────────┐
+│                   user_agent                    │ requests │
+│                     varchar                     │  int64   │
+├─────────────────────────────────────────────────┼──────────┤
+│ Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...   │     4521 │
+│ Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15).. │     2103 │
+│ curl/7.68.0                                     │      892 │
+└─────────────────────────────────────────────────┴──────────┘
+```
 
 ## Parameters
 
-### `read_httpd_log(path, [format_type], [format_str])`
+### read_httpd_log
 
-- **`path`** (required): File path or glob pattern (e.g., `'access.log'`, `'logs/*.log'`)
-- **`format_type`** (optional): Predefined format type
-  - `'common'` (default) - Apache Common Log Format
-  - `'combined'` - Apache Combined Log Format
-- **`format_str`** (optional): Custom Apache LogFormat string
-  - Takes precedence over `format_type` if both are specified
-  - Enables support for custom log formats
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | VARCHAR | File path or glob pattern (required) |
+| `format_type` | VARCHAR | `'common'` (default), `'combined'`, or nickname from conf |
+| `format_str` | VARCHAR | Custom Apache LogFormat string (overrides format_type) |
+| `conf` | VARCHAR | Path to httpd.conf for format lookup |
+| `raw` | BOOLEAN | Include diagnostic columns (default: false) |
+
+### read_httpd_conf
+
+See [read_httpd_conf documentation](docs/read_httpd_conf.md) for details.
 
 ## Output Schema
 
-The `read_httpd_log` function returns a table with columns determined by the `format_type` and `raw` parameters:
+The output schema depends on the log format:
 
-- **Common format**: 10 columns (default) or 13 columns with `raw=true`
-- **Combined format**: 12 columns (default) or 15 columns with `raw=true`
-- **Custom formats**: Schema dynamically generated based on `format_str` directives
+| Format | Columns (raw=false) | Columns (raw=true) |
+|--------|---------------------|-------------------|
+| Common | 11 | 13 |
+| Combined | 13 | 15 |
+| Custom | Varies | +2 diagnostic columns |
 
-The `raw` parameter controls visibility of diagnostic columns (`timestamp_raw`, `parse_error`, `raw_line`):
-- **`raw=false`** (default): Diagnostic columns are hidden, parse errors are excluded from results
-- **`raw=true`**: Diagnostic columns are included, all rows (including parse errors) are returned
+Common columns include: `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `log_file`
 
-**📖 See [Output Schema Documentation](docs/schema.md) for complete column reference, detailed information, and usage examples.**
+Combined format adds: `referer`, `user_agent`
 
-### Quick Example
+Diagnostic columns (raw=true only): `parse_error`, `raw_line`
 
-```sql
--- Default: 10 columns, parse errors excluded
-SELECT client_ip, method, path, status, bytes
-FROM read_httpd_log('access.log');
-
--- With diagnostics: 13 columns, includes parse errors with diagnostic info
-SELECT client_ip, method, status, parse_error, raw_line
-FROM read_httpd_log('access.log', raw=true)
-WHERE parse_error = true;
+See [read_httpd_log documentation](docs/read_httpd_log.md) for complete column reference.
 
 ## Building
 
-### Managing dependencies
-DuckDB extensions use VCPKG for dependency management. Enabling VCPKG is very simple: follow the [installation instructions](https://vcpkg.io/en/getting-started) or just run the following:
-```shell
-git clone https://github.com/Microsoft/vcpkg.git
-./vcpkg/bootstrap-vcpkg.sh
-export VCPKG_TOOLCHAIN_PATH=`pwd`/vcpkg/scripts/buildsystems/vcpkg.cmake
-```
-
-### Build steps
-Now to build the extension, run:
 ```sh
 make
 ```
 
-The main binaries that will be built are:
-```sh
-./build/release/duckdb
-./build/release/test/unittest
-./build/release/extension/httpd_log/httpd_log.duckdb_extension
-```
+The built extension will be at `./build/release/extension/httpd_log/httpd_log.duckdb_extension`.
 
-- `duckdb` is the binary for the duckdb shell with the extension code automatically loaded.
-- `unittest` is the test runner of duckdb. The extension is already linked into the binary.
-- `httpd_log.duckdb_extension` is the loadable binary as it would be distributed.
-
-## Local Development and Testing
-
-### Using the Built Extension
-
-After building, there are two ways to use the extension:
-
-#### Option 1: Use the DuckDB Binary with Extension Built-in
-
-The built `duckdb` binary already has the extension linked in:
-
-```sh
-./build/release/duckdb
-```
-
-Then you can directly use the `read_httpd_log()` function:
-```sql
-D SELECT client_ip, method, path, status
-  FROM read_httpd_log('test/data/sample.log')
-  WHERE parse_error = false
-  LIMIT 5;
-```
-
-#### Option 2: Load the Extension in Standard DuckDB
-
-If you want to use the extension with a standard DuckDB installation:
-
-```sh
-duckdb -unsigned
-```
-
-Then load the extension file:
-```sql
-D LOAD 'build/release/extension/httpd_log/httpd_log.duckdb_extension';
-D SELECT * FROM read_httpd_log('access.log');
-```
-
-### Example Output
-
-```
-┌─────────────┬─────────┬─────────────┬────────┐
-│  client_ip  │ method  │    path     │ status │
-│   varchar   │ varchar │   varchar   │ int32  │
-├─────────────┼─────────┼─────────────┼────────┤
-│ 192.168.1.1 │ GET     │ /index.html │    200 │
-│ 192.168.1.2 │ POST    │ /api/login  │    200 │
-│ ...         │ ...     │ ...         │    ... │
-└─────────────┴─────────┴─────────────┴────────┘
-```
-
-## Running the tests
-Different tests can be created for DuckDB extensions. The primary way of testing DuckDB extensions should be the SQL tests in `./test/sql`. These SQL tests can be run using:
-```sh
-make test
-```
-
-## Cross-Platform Building
-
-### Building for Multiple Platforms
-
-The extension can be built for different platforms using the `DUCKDB_PLATFORM` environment variable:
-
-```sh
-# Build for Linux (on macOS, produces macOS binary - see note below)
-DUCKDB_PLATFORM=linux_amd64 make
-
-# Build for Windows (on macOS, produces macOS binary - see note below)
-DUCKDB_PLATFORM=windows_amd64 make
-
-# Build for macOS ARM64
-DUCKDB_PLATFORM=osx_arm64 make
-
-# Build for macOS x86_64
-DUCKDB_PLATFORM=osx_amd64 make
-```
-
-**Important Note:** True cross-compilation from macOS to Linux/Windows requires proper toolchains or Docker containers. The `DUCKDB_PLATFORM` variable mainly affects build configuration, but the actual binary format will still be for the host platform when building locally.
-
-### CI/CD Cross-Platform Builds
-
-The recommended way to build binaries for all platforms is using GitHub Actions, which is configured in `.github/workflows/MainDistributionPipeline.yml`. This workflow automatically builds for:
-
-- Linux (x86_64, ARM64)
-- macOS (x86_64, ARM64)
-- Windows (x86_64)
-- WebAssembly (WASM)
-
-To trigger a build for all platforms:
-
-1. Push changes to GitHub
-2. The workflow will automatically build, test, and create platform-specific binaries
-3. Binaries are available in the GitHub Actions artifacts
-
-For local cross-platform development, consider using Docker:
-
-```sh
-# Example: Build for Linux using Docker
-docker run --rm -v $(pwd):/workspace -w /workspace \
-  ubuntu:22.04 bash -c "apt-get update && apt-get install -y build-essential cmake git && make"
-```
-
-## Releasing
-
-### Creating a Release
-
-To create a new release of the extension:
-
-1. **Tag the release** with semantic versioning:
-   ```bash
-   git tag -a v1.0.0 -m "Release version 1.0.0"
-   git push origin v1.0.0
-   ```
-
-2. **GitHub Actions automatically**:
-   - Builds binaries for all platforms (Linux, macOS, Windows, WebAssembly)
-   - Runs all tests
-   - Creates a GitHub Release
-   - Uploads all binaries to the release
-
-3. **Check the release**:
-   - Visit `https://github.com/<your-username>/httpd_log/releases`
-   - Download binaries for your platform
-
-### Versioning Guidelines
-
-Follow [Semantic Versioning](https://semver.org/):
-- `v1.0.0` - Major release (breaking changes)
-- `v1.1.0` - Minor release (new features, backward compatible)
-- `v1.0.1` - Patch release (bug fixes)
-
-## Installation
-
-### Installing from GitHub Releases (Recommended)
-
-Download and extract the pre-built binary for your platform from the [Releases page](https://github.com/<your-username>/httpd_log/releases).
-
-#### Linux/macOS
-
-```bash
-# Download the archive for your platform
-# Linux x86_64:
-curl -L -O https://github.com/<your-username>/httpd_log/releases/download/v1.0.0/httpd_log-v1.0.0-linux_amd64.tar.gz
-
-# macOS ARM64 (M1/M2/M3):
-curl -L -O https://github.com/<your-username>/httpd_log/releases/download/v1.0.0/httpd_log-v1.0.0-osx_arm64.tar.gz
-
-# Extract the archive
-tar -xzf httpd_log-v1.0.0-*.tar.gz
-
-# Launch DuckDB
-duckdb -unsigned
-```
-
-```sql
--- Install the extracted extension
-INSTALL './httpd_log.duckdb_extension';
-LOAD httpd_log;
-```
-
-#### Windows
-
-```powershell
-# Download and extract the ZIP file
-# (Download httpd_log-v1.0.0-windows_amd64.zip from the Releases page)
-Expand-Archive httpd_log-v1.0.0-windows_amd64.zip
-
-# Launch DuckDB
-duckdb -unsigned
-```
-
-```sql
--- Install the extracted extension
-INSTALL './httpd_log.duckdb_extension';
-LOAD httpd_log;
-```
-
-**Note:** Replace `<your-username>` with your GitHub username and `v1.0.0` with the desired version.
-
-**Available platforms:**
-- `linux_amd64` - Linux x86_64
-- `linux_arm64` - Linux ARM64
-- `osx_amd64` - macOS x86_64 (Intel)
-- `osx_arm64` - macOS ARM64 (M1/M2/M3)
-- `windows_amd64` - Windows x86_64
-
-You will need to launch DuckDB with the `allow_unsigned_extensions` option:
-
-CLI:
-```shell
-duckdb -unsigned
-```
-
-Python:
-```python
-con = duckdb.connect(':memory:', config={'allow_unsigned_extensions' : 'true'})
-```
-
-NodeJS:
-```js
-db = new duckdb.Database(':memory:', {"allow_unsigned_extensions": "true"});
-```
-
-### Installing the deployed binaries from S3 (For Official DuckDB Extension Repository)
-
-To install your extension binaries from S3, you will need to set the repository endpoint in DuckDB to the HTTP url of your bucket + version of the extension you want to install. To do this run the following SQL query in DuckDB:
-```sql
-SET custom_extension_repository='bucket.s3.eu-west-1.amazonaws.com/<your_extension_name>/latest';
-```
-
-After running these steps, you can install and load your extension using the regular INSTALL/LOAD commands in DuckDB:
-```sql
-INSTALL httpd_log;
-LOAD httpd_log;
-```
-
-## Development
-
-### Setting up CLion
-
-#### Opening project
-Configuring CLion with this extension requires a little work. Firstly, make sure that the DuckDB submodule is available.
-Then make sure to open `./duckdb/CMakeLists.txt` (so not the top level `CMakeLists.txt` file from this repo) as a project in CLion.
-Now to fix your project path go to `tools->CMake->Change Project Root`([docs](https://www.jetbrains.com/help/clion/change-project-root-directory.html)) to set the project root to the root dir of this repo.
-
-#### Debugging
-To set up debugging in CLion, there are two simple steps required. Firstly, in `CLion -> Settings / Preferences -> Build, Execution, Deploy -> CMake` you will need to add the desired builds (e.g. Debug, Release, RelDebug, etc). There's different ways to configure this, but the easiest is to leave all empty, except the `build path`, which needs to be set to `../build/{build type}`, and CMake Options to which the following flag should be added, with the path to the extension CMakeList:
-
-```
--DDUCKDB_EXTENSION_CONFIGS=<path_to_the_extension_CMakeLists.txt>
-```
-
-The second step is to configure the unittest runner as a run/debug configuration. To do this, go to `Run -> Edit Configurations` and click `+ -> Cmake Application`. The target and executable should be `unittest`. This will run all the DuckDB tests. To specify only running the extension specific tests, add `--test-dir ../../.. [sql]` to the `Program Arguments`.
-
-## Architecture
-
-The extension consists of several key components:
-
-1. **httpd_log_table_function** - Main table function implementation
-2. **httpd_log_parser** - Log line parsing for common/combined formats
-3. **httpd_log_format_parser** - Apache LogFormat string parser and dynamic schema generator
-
-The dynamic schema generation allows the extension to support arbitrary log formats by parsing Apache LogFormat directives and automatically creating the appropriate DuckDB column definitions.
+For development setup, testing, and contributing, see [CONTRIBUTING.md](CONTRIBUTING.md).

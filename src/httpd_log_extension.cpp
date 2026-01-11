@@ -2,6 +2,7 @@
 
 #include "httpd_log_extension.hpp"
 #include "httpd_log_table_function.hpp"
+#include "httpd_conf_reader.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 
@@ -10,6 +11,9 @@ namespace duckdb {
 static void LoadInternal(ExtensionLoader &loader) {
 	// Register the read_httpd_log table function
 	HttpdLogTableFunction::RegisterFunction(loader);
+
+	// Register the read_httpd_conf table function
+	HttpdConfReader::RegisterFunction(loader);
 }
 
 void HttpdLogExtension::Load(ExtensionLoader &loader) {

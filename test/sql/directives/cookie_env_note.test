@@ -6,7 +6,7 @@ require httpd_log
 
 # Test 1: Cookie directive (%{...}C) - column name generated from modifier
 query TT
-SELECT session_id, client_ip
+SELECT session_id, client_host
 FROM read_httpd_log(
     'test/data/directives/cookie_env_note.log',
     format_str='%h %{session_id}C'

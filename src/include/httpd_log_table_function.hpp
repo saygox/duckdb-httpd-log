@@ -36,6 +36,7 @@ private:
 		unique_ptr<HttpdLogBufferedReader> buffered_reader;
 		string current_file;
 		bool finished;
+		idx_t current_line_number = 0; // Current line number in the file (1-based)
 
 		// Profiling statistics
 		idx_t total_rows = 0;      // Total number of rows read
