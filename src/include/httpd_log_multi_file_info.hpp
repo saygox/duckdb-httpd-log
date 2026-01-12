@@ -35,6 +35,29 @@ struct HttpdLogGlobalState : public GlobalTableFunctionState {
 };
 
 //===--------------------------------------------------------------------===//
+// HttpdLogLocalState - Thread-local state for parsing
+// Each thread gets its own instance with separate RE2 parsing buffers
+//===--------------------------------------------------------------------===//
+struct HttpdLogLocalState : public LocalTableFunctionState {
+	//! Thread-local RE2 parsing buffers (one per thread, avoiding data races)
+	vector<duckdb_re2::StringPiece> matches;
+	vector<duckdb_re2::RE2::Arg> args;
+	vector<duckdb_re2::RE2::Arg *> arg_ptrs;
+
+	//! Initialize buffers for the given number of capturing groups
+	void InitializeBuffers(int num_groups) {
+		if (matches.size() != static_cast<size_t>(num_groups)) {
+			matches.resize(num_groups);
+			args.resize(num_groups);
+			arg_ptrs.resize(num_groups);
+			for (int i = 0; i < num_groups; i++) {
+				arg_ptrs[i] = &args[i];
+			}
+		}
+	}
+};
+
+//===--------------------------------------------------------------------===//
 // HttpdLogMultiFileInfo - MultiFileReaderInterface implementation
 //===--------------------------------------------------------------------===//
 struct HttpdLogMultiFileInfo : MultiFileReaderInterface {

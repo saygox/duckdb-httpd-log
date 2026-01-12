@@ -39,7 +39,7 @@ The main binaries that will be built are:
 ```
 
 ```sql
-SELECT client_ip, method, path, status
+SELECT client_host, method, path, status
 FROM read_httpd_log('test/data/common/sample.log')
 LIMIT 5;
 ```
@@ -114,6 +114,30 @@ Follow [Semantic Versioning](https://semver.org/):
 - `v1.0.0` - Major release (breaking changes)
 - `v1.1.0` - Minor release (new features, backward compatible)
 - `v1.0.1` - Patch release (bug fixes)
+
+## Updating DuckDB Version
+
+When a new DuckDB version is released, update the extension as follows:
+
+### Bump Submodules
+
+- `./duckdb` - Set to latest tagged release
+- `./extension-ci-tools` - Check out the branch matching the DuckDB version (e.g., `v1.1.0`)
+
+### Update GitHub Workflows
+
+In `.github/workflows/MainDistributionPipeline.yml`:
+- Update `duckdb_version` in `duckdb-stable-build` job
+- Update `duckdb_version` in `duckdb-stable-deploy` job
+- Update the reusable workflow version in `_extension_distribution.yml`
+
+### Handle API Changes
+
+DuckDB's internal C++ API is not guaranteed to be stable. If your extension no longer builds after updating:
+
+- Check DuckDB's [Release Notes](https://github.com/duckdb/duckdb/releases)
+- Review [Core extension patches](https://github.com/duckdb/duckdb/commits/main/.github/patches/extensions)
+- Check git history of relevant C++ header files
 
 ## IDE Setup (CLion)
 

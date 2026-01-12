@@ -110,24 +110,10 @@ struct ParsedFormat {
 	// Timestamp groups for combining multiple %t directives into single timestamp
 	vector<TimestampGroup> timestamp_groups;
 
-	// Reusable buffers for RE2::FullMatchN to eliminate per-line heap allocations
-	// These buffers are allocated once in ParseFormatString() and reused across
-	// all ParseLogLine() calls, reducing 36-40M allocations to just 3.
-	//
-	// THREAD SAFETY: Marked mutable because buffers are physically modified but
-	// ParseLogLine() is logically const (doesn't change format definition).
-	// Currently safe because MaxThreads() = 1 (single-threaded execution).
-	//
-	// FUTURE PARALLELIZATION: Before enabling multi-threading, these buffers
-	// MUST be moved to thread-local state (LocalTableFunctionState) to avoid
-	// data races. See implementation plan for detailed migration strategy.
-	//
-	// MOVE WARNING: ParsedFormat must not be moved after initialization because
-	// arg_ptrs contains pointers to elements of args. Currently safe because
-	// ParsedFormat is stored in BindData and never moved.
-	mutable vector<duckdb_re2::StringPiece> matches;
-	mutable vector<duckdb_re2::RE2::Arg> args;
-	mutable vector<duckdb_re2::RE2::Arg *> arg_ptrs;
+	// NOTE: RE2 parsing buffers (matches, args, arg_ptrs) were moved to
+	// HttpdLogLocalState (thread-local state) for thread-safety in multi-threaded
+	// file reading. Each thread now has its own buffers to avoid data races.
+	// See httpd_log_multi_file_info.hpp for HttpdLogLocalState definition.
 
 	ParsedFormat() = default;
 	explicit ParsedFormat(string format_str) : original_format_str(std::move(format_str)) {
@@ -156,6 +142,13 @@ public:
 	// Parse a log line using the parsed format
 	// Returns a vector of string values corresponding to the fields in parsed_format
 	// Returns empty vector if parsing fails
+
+	// Thread-safe version: uses caller-provided buffers (for multi-threaded Scan)
+	static vector<string> ParseLogLine(const string &line, const ParsedFormat &parsed_format,
+	                                   vector<duckdb_re2::StringPiece> &matches, vector<duckdb_re2::RE2::Arg> &args,
+	                                   vector<duckdb_re2::RE2::Arg *> &arg_ptrs);
+
+	// Single-threaded version: uses temporary local buffers (for Bind, DetectFormat)
 	static vector<string> ParseLogLine(const string &line, const ParsedFormat &parsed_format);
 
 	// Helper to parse timestamp from Apache log format

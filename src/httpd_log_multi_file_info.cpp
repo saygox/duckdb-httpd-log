@@ -236,10 +236,15 @@ void HttpdLogMultiFileInfo::BindReader(ClientContext &context, vector<LogicalTyp
 optional_idx HttpdLogMultiFileInfo::MaxThreads(const MultiFileBindData &bind_data_p,
                                                const MultiFileGlobalState &global_state,
                                                FileExpandResult expand_result) {
-	// TODO: Currently using single-threaded execution due to race condition issues
-	// with the MultiFile framework. The framework may call Scan on multiple threads
-	// for the same file, which causes data corruption in httpd_log's buffered_reader.
-	// Future work: investigate how to properly synchronize or use thread-local state.
+	// Thread-safety: Now safe for parallel file reading because:
+	// 1. scan_initialized/finished flags use std::atomic<bool> with compare_exchange
+	// 2. RE2 parsing buffers are in HttpdLogLocalState (thread-local per thread)
+	// 3. Each HttpdLogFileReader has its own buffered_reader instance
+	if (expand_result == FileExpandResult::MULTIPLE_FILES) {
+		// Multiple files: allow parallel processing (one thread per file)
+		return optional_idx();
+	}
+	// Single file: no intra-file parallelism (unlike Parquet row groups)
 	return 1;
 }
 
@@ -258,7 +263,8 @@ unique_ptr<GlobalTableFunctionState> HttpdLogMultiFileInfo::InitializeGlobalStat
 
 unique_ptr<LocalTableFunctionState> HttpdLogMultiFileInfo::InitializeLocalState(ExecutionContext &context,
                                                                                 GlobalTableFunctionState &gstate) {
-	return make_uniq<LocalTableFunctionState>();
+	// Return thread-local state with RE2 parsing buffers
+	return make_uniq<HttpdLogLocalState>();
 }
 
 shared_ptr<BaseFileReader> HttpdLogMultiFileInfo::CreateReader(ClientContext &context,

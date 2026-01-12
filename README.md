@@ -7,12 +7,12 @@ A DuckDB extension for reading and parsing Apache HTTP server log files directly
 - Read Apache log files using the `read_httpd_log()` table function
 - Support for Common Log Format and Combined Log Format
 - Custom format support via Apache LogFormat syntax
-- Read format definitions from httpd.conf with the `read_httpd_conf()` function
-- Glob pattern support for reading multiple log files
+- Automatic format selection from httpd.conf
+- Multi-file, S3, and gzip support via glob patterns
 
 ## Installation
 
-Currently, binaries are available from [GitHub Releases](https://github.com/itosaygo/httpd_log/releases).
+Currently, binaries are available from [GitHub Releases](https://github.com/saygox/duckdb-httpd-log/releases).
 
 ```bash
 # Download the binary for your platform and extract it
@@ -31,14 +31,14 @@ LOAD httpd_log;
 ### Basic Usage
 
 ```sql
-SELECT client_ip, method, path, status, bytes
+SELECT client_host, method, path, status, bytes
 FROM read_httpd_log('access.log')
 LIMIT 5;
 ```
 
 ```
 ┌─────────────┬────────┬───────────────┬────────┬───────┐
-│  client_ip  │ method │     path      │ status │ bytes │
+│  client_host  │ method │     path      │ status │ bytes │
 │   varchar   │ varchar│    varchar    │ int32  │ int64 │
 ├─────────────┼────────┼───────────────┼────────┼───────┤
 │ 192.168.1.1 │ GET    │ /index.html   │    200 │  2326 │
@@ -76,7 +76,7 @@ SELECT * FROM read_httpd_log('access.log',
     format_str='%h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-agent}i"');
 
 -- Custom format with request duration
-SELECT client_ip, path, status, duration
+SELECT client_host, path, status, duration
 FROM read_httpd_log('access.log',
     format_str='%h %l %u %t "%r" %>s %b %D');
 ```
@@ -157,37 +157,15 @@ LIMIT 3;
 
 ## Parameters
 
-### read_httpd_log
-
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `path` | VARCHAR | File path or glob pattern (required) |
-| `format_type` | VARCHAR | `'common'` (default), `'combined'`, or nickname from conf |
-| `format_str` | VARCHAR | Custom Apache LogFormat string (overrides format_type) |
-| `conf` | VARCHAR | Path to httpd.conf for format lookup |
+| `format_type` | VARCHAR | `'common'`, `'combined'`, or nickname from conf |
+| `format_str` | VARCHAR | Custom Apache LogFormat string |
+| `conf` | VARCHAR | Path to httpd.conf for automatic format selection |
 | `raw` | BOOLEAN | Include diagnostic columns (default: false) |
 
-### read_httpd_conf
-
-See [read_httpd_conf documentation](docs/read_httpd_conf.md) for details.
-
-## Output Schema
-
-The output schema depends on the log format:
-
-| Format | Columns (raw=false) | Columns (raw=true) |
-|--------|---------------------|-------------------|
-| Common | 11 | 13 |
-| Combined | 13 | 15 |
-| Custom | Varies | +2 diagnostic columns |
-
-Common columns include: `client_ip`, `ident`, `auth_user`, `timestamp`, `method`, `path`, `query_string`, `protocol`, `status`, `bytes`, `log_file`
-
-Combined format adds: `referer`, `user_agent`
-
-Diagnostic columns (raw=true only): `parse_error`, `raw_line`
-
-See [read_httpd_log documentation](docs/read_httpd_log.md) for complete column reference.
+See [read_httpd_log documentation](docs/read_httpd_log.md) for complete parameter details and supported directives.
 
 ## Building
 

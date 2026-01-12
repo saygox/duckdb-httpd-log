@@ -4,6 +4,7 @@
 #include "duckdb/function/table_function.hpp"
 #include "httpd_log_format_parser.hpp"
 #include "httpd_log_buffered_reader.hpp"
+#include <atomic>
 
 namespace duckdb {
 
@@ -29,10 +30,12 @@ public:
 	idx_t current_line_number = 0;
 
 	//! Whether scan has been initialized (TryInitializeScan returned true)
-	bool scan_initialized = false;
+	//! Thread-safe: atomic for multi-threaded file reading
+	std::atomic<bool> scan_initialized {false};
 
 	//! Whether we have finished reading this file
-	bool finished = false;
+	//! Thread-safe: atomic for multi-threaded file reading
+	std::atomic<bool> finished {false};
 
 public:
 	bool TryInitializeScan(ClientContext &context, GlobalTableFunctionState &gstate,

@@ -526,18 +526,9 @@ ParsedFormat HttpdLogFormatParser::ParseFormatString(const string &format_str) {
 		throw InvalidInputException("Invalid regex pattern: " + result.compiled_regex->error());
 	}
 
-	// Pre-allocate reusable buffers for RE2::FullMatchN to eliminate per-line allocations
-	// Performance impact: Reduces ~36-40M allocations for 1.5M rows to just 3 allocations
-	int num_groups = result.compiled_regex->NumberOfCapturingGroups();
-	result.matches.resize(num_groups);
-	result.args.resize(num_groups);
-	result.arg_ptrs.resize(num_groups);
-
-	// Initialize arg_ptrs to point to args (these pointers are stable)
-	// args[i] = &matches[i] is set per-line in ParseLogLine() because StringPiece changes
-	for (int i = 0; i < num_groups; i++) {
-		result.arg_ptrs[i] = &result.args[i];
-	}
+	// NOTE: RE2 parsing buffers (matches, args, arg_ptrs) are now allocated in
+	// HttpdLogLocalState (thread-local state) for thread-safety in multi-threaded
+	// file reading. See HttpdLogLocalState::InitializeBuffers().
 
 	return result;
 }
@@ -796,7 +787,11 @@ bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, s
 	return true;
 }
 
-vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const ParsedFormat &parsed_format) {
+// Thread-safe version: uses caller-provided buffers (for multi-threaded Scan)
+vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const ParsedFormat &parsed_format,
+                                                  vector<duckdb_re2::StringPiece> &matches,
+                                                  vector<duckdb_re2::RE2::Arg> &args,
+                                                  vector<duckdb_re2::RE2::Arg *> &arg_ptrs) {
 	vector<string> result;
 
 	// If no compiled regex (unknown format), return empty to indicate parse error
@@ -807,32 +802,48 @@ vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const Pars
 	// Use the pre-compiled RE2 for performance
 	int num_groups = parsed_format.compiled_regex->NumberOfCapturingGroups();
 
-	// Reuse pre-allocated buffers from ParsedFormat - ZERO heap allocations here!
-	// These were allocated once in ParseFormatString() and are reused for every line
 	duckdb_re2::StringPiece input(line);
 
 	// Update args to point to matches for this line
-	// Note: arg_ptrs already points to args (set in ParseFormatString)
-	// We only need to update the RE2::Arg -> StringPiece binding per-line
 	for (int i = 0; i < num_groups; i++) {
-		parsed_format.args[i] = &parsed_format.matches[i];
+		args[i] = &matches[i];
 	}
 
-	// Perform the match using reusable buffers
-	if (!duckdb_re2::RE2::FullMatchN(input, *parsed_format.compiled_regex, parsed_format.arg_ptrs.data(), num_groups)) {
+	// Perform the match using caller-provided buffers
+	if (!duckdb_re2::RE2::FullMatchN(input, *parsed_format.compiled_regex, arg_ptrs.data(), num_groups)) {
 		// Parsing failed - return empty vector
 		return result;
 	}
 
-	// Extract matched groups from reusable buffer
+	// Extract matched groups from buffer
 	// IMPORTANT: matches[i] references substrings of 'line', so we must copy
 	// to std::string (as_string()) before 'line' goes out of scope
 	result.reserve(num_groups);
 	for (int i = 0; i < num_groups; i++) {
-		result.push_back(parsed_format.matches[i].as_string());
+		result.push_back(matches[i].as_string());
 	}
 
 	return result;
+}
+
+// Single-threaded version: uses temporary local buffers (for Bind, DetectFormat)
+vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const ParsedFormat &parsed_format) {
+	// If no compiled regex, return empty
+	if (!parsed_format.compiled_regex) {
+		return vector<string>();
+	}
+
+	// Create temporary local buffers for single-threaded use
+	int num_groups = parsed_format.compiled_regex->NumberOfCapturingGroups();
+	vector<duckdb_re2::StringPiece> matches(num_groups);
+	vector<duckdb_re2::RE2::Arg> args(num_groups);
+	vector<duckdb_re2::RE2::Arg *> arg_ptrs(num_groups);
+	for (int i = 0; i < num_groups; i++) {
+		arg_ptrs[i] = &args[i];
+	}
+
+	// Call the thread-safe version with local buffers
+	return ParseLogLine(line, parsed_format, matches, args, arg_ptrs);
 }
 
 // Helper to check if a directive is a request line variant (%r, %>r, %<r)
