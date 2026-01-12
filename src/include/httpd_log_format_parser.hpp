@@ -145,8 +145,7 @@ public:
 
 	// Thread-safe version: uses caller-provided buffers (for multi-threaded Scan)
 	static vector<string> ParseLogLine(const string &line, const ParsedFormat &parsed_format,
-	                                   vector<duckdb_re2::StringPiece> &matches,
-	                                   vector<duckdb_re2::RE2::Arg> &args,
+	                                   vector<duckdb_re2::StringPiece> &matches, vector<duckdb_re2::RE2::Arg> &args,
 	                                   vector<duckdb_re2::RE2::Arg *> &arg_ptrs);
 
 	// Single-threaded version: uses temporary local buffers (for Bind, DetectFormat)

@@ -382,8 +382,8 @@ void HttpdLogFileReader::Scan(ClientContext &context, GlobalTableFunctionState &
 		}
 
 		// Parse the line using thread-local buffers for thread-safety
-		vector<string> parsed_values = HttpdLogFormatParser::ParseLogLine(
-		    line, parsed_format, lstate.matches, lstate.args, lstate.arg_ptrs);
+		vector<string> parsed_values =
+		    HttpdLogFormatParser::ParseLogLine(line, parsed_format, lstate.matches, lstate.args, lstate.arg_ptrs);
 		bool parse_error = parsed_values.empty();
 
 		// Skip error rows when raw_mode is false

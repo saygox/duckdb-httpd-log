@@ -789,9 +789,9 @@ bool HttpdLogFormatParser::ParseRequest(const string &request, string &method, s
 
 // Thread-safe version: uses caller-provided buffers (for multi-threaded Scan)
 vector<string> HttpdLogFormatParser::ParseLogLine(const string &line, const ParsedFormat &parsed_format,
-                                                   vector<duckdb_re2::StringPiece> &matches,
-                                                   vector<duckdb_re2::RE2::Arg> &args,
-                                                   vector<duckdb_re2::RE2::Arg *> &arg_ptrs) {
+                                                  vector<duckdb_re2::StringPiece> &matches,
+                                                  vector<duckdb_re2::RE2::Arg> &args,
+                                                  vector<duckdb_re2::RE2::Arg *> &arg_ptrs) {
 	vector<string> result;
 
 	// If no compiled regex (unknown format), return empty to indicate parse error

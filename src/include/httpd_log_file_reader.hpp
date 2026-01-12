@@ -31,11 +31,11 @@ public:
 
 	//! Whether scan has been initialized (TryInitializeScan returned true)
 	//! Thread-safe: atomic for multi-threaded file reading
-	std::atomic<bool> scan_initialized{false};
+	std::atomic<bool> scan_initialized {false};
 
 	//! Whether we have finished reading this file
 	//! Thread-safe: atomic for multi-threaded file reading
-	std::atomic<bool> finished{false};
+	std::atomic<bool> finished {false};
 
 public:
 	bool TryInitializeScan(ClientContext &context, GlobalTableFunctionState &gstate,
